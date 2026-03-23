@@ -34,7 +34,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # 7. إنشاء المجلدات وإعطاء صلاحيات كاملة (777)
 # عملنا فولدر my_temp عشان نبعد عن فولدرات النظام المحمية
-RUN mkdir -p /app/my_temp /app/temp_videos /app/vision /app/temp_audio && \
+# ✅ data folder للبيانات الدائمة (DB + outputs)
+RUN mkdir -p /app/data /app/data/outputs /app/my_temp /app/temp_videos /app/vision /app/temp_audio && \
     chown -R user:user /app && \
     chmod -R 777 /app
 
@@ -49,6 +50,5 @@ USER user
 ENV HOME=/home/user \
     PATH=/home/user/.local/bin:$PATH
 
-# بعد (صحيح)
 ENV FLASK_APP=main.py
 CMD ["flask", "run", "--host=0.0.0.0", "--port=7860"]
