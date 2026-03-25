@@ -32,6 +32,9 @@ RUN git clone https://github.com/AliMahmoudDev/Quran-Reels-Generator.git .
 # 6. تثبيت المكتبات
 RUN pip install --no-cache-dir -r requirements.txt
 
+# 6.5 تثبيت متصفح Chromium فقط لـ Playwright (أخف المتصفحات)
+RUN playwright install chromium
+
 # 7. إنشاء المجلدات وإعطاء صلاحيات كاملة (777)
 # عملنا فولدر my_temp عشان نبعد عن فولدرات النظام المحمية
 RUN mkdir -p /app/my_temp /app/temp_videos /app/vision /app/temp_audio && \
