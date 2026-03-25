@@ -3,7 +3,8 @@ FROM python:3.9-bullseye
 
 WORKDIR /app
 
-# 2. تثبيت البرامج الضرورية + dependencies لمتصفحات Playwright
+# 2. تثبيت البرامج الضرورية
+# استبدلنا fonts-noto بـ fonts-kacst (خطوط عربية خفيفة ومضمونة)
 RUN apt-get update && \
     apt-get install -y \
     git \
@@ -11,27 +12,8 @@ RUN apt-get update && \
     imagemagick \
     ghostscript \
     fonts-liberation \
-    fonts-kacst \
-    # Playwright browser dependencies
-    libnss3 \
-    libnspr4 \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libcups2 \
-    libdrm2 \
-    libdbus-1-3 \
-    libxkbcommon0 \
-    libatspi2.0-0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxrandr2 \
-    libgbm1 \
-    libasound2 \
-    libpango-1.0-0 \
-    libcairo2 \
-    libxshmfence1 \
-    && rm -rf /var/lib/apt/lists/*
+    fonts-kacst && \
+    rm -rf /var/lib/apt/lists/*
 
 # 3. فتح قيود ImageMagick بالكامل (الحل النووي)
 # ده بيسمح بقراءة الملفات المؤقتة (@) والنصوص (TXT)
@@ -50,12 +32,9 @@ RUN git clone https://github.com/AliMahmoudDev/Quran-Reels-Generator.git .
 # 6. تثبيت المكتبات
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 6.5 تثبيت متصفح Chromium فقط لـ Playwright (أخف المتصفحات)
-RUN playwright install chromium
-
 # 7. إنشاء المجلدات وإعطاء صلاحيات كاملة (777)
 # عملنا فولدر my_temp عشان نبعد عن فولدرات النظام المحمية
-RUN mkdir -p /app/my_temp /app/temp_videos /app/vision /app/temp_audio /app/tiktok_sessions && \
+RUN mkdir -p /app/my_temp /app/temp_videos /app/vision /app/temp_audio && \
     chown -R user:user /app && \
     chmod -R 777 /app
 
@@ -70,5 +49,6 @@ USER user
 ENV HOME=/home/user \
     PATH=/home/user/.local/bin:$PATH
 
+# بعد (صحيح)
 ENV FLASK_APP=main.py
 CMD ["flask", "run", "--host=0.0.0.0", "--port=7860"]
