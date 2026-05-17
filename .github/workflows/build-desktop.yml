@@ -6,10 +6,15 @@ on:
       - "v*"
   workflow_dispatch:
     inputs:
+      version:
+        description: "Release version (semver, e.g. 0.2.5)"
+        type: string
+        required: true
+        default: "0.2.5"
       release:
         description: "Publish a GitHub Release with the installer"
         type: boolean
-        default: false
+        default: true
 
 permissions:
   contents: write   # needed to create Releases
@@ -55,19 +60,33 @@ jobs:
           python desktop\generate_splash.py
 
       - name: Inject version from git tag
+        id: inject_version
         shell: pwsh
         run: |
-          # Derive version from tag (v0.2.1 -> 0.2.1) or fallback
+          # Derive version from tag (v0.2.1 -> 0.2.1), otherwise from manual input.
           $tag = "${{ github.ref_name }}"
           if ($tag -match '^v(\d+\.\d+\.\d+)') {
             $ver = $matches[1]
+          } elseif ('${{ github.event_name }}' -eq 'workflow_dispatch') {
+            $ver = '${{ inputs.version }}'
           } else {
             $ver = "0.0.0"
           }
+
+          if (-not ($ver -match '^\d+\.\d+\.\d+$')) {
+            throw "Invalid version '$ver'. Expected semver like 0.2.5"
+          }
+
+          $releaseTag = "v$ver"
           $parts = $ver -split '\.'
           while ($parts.Count -lt 4) { $parts += '0' }
           $verTuple = $parts -join ', '
-          Write-Host "Version: $ver ($verTuple)"
+          Write-Host "Version: $ver ($verTuple) / Tag: $releaseTag"
+
+          "RELEASE_VERSION=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "RELEASE_TAG=$releaseTag" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "release_tag=$releaseTag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "release_version=$ver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
           # Patch NSIS installer
           (Get-Content desktop\installer_windows.nsi) `
@@ -129,6 +148,9 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v') || inputs.release == true
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.inject_version.outputs.release_tag }}
+          target_commitish: ${{ github.sha }}
+          name: Quran Reels ${{ steps.inject_version.outputs.release_tag }}
           files: |
             dist/QuranReels-Setup-*.exe
             dist/QuranReels-Portable-Windows.zip
