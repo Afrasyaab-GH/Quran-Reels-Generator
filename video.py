@@ -861,7 +861,8 @@ def build_video_task(job_id, user_pexels_key, reciter_id, surah, start, end, qua
                 JOBS[job_id] = {'id': job_id, 'output_path': final_output_path, 'is_complete': True, 'is_running': False, 'percent': 100, 'status': "complete"}
         
         # Update in SQLite and add to history
-        db_update_job(job_id, output_path=final_output_path, status='complete', percent=100, completed_at=time.time())
+        from database import _now_iso as _db_now
+        db_update_job(job_id, output_path=final_output_path, status='complete', percent=100, completed_at=_db_now())
         
         # Get config from DB to add to history
         db_job = db_get_job(job_id)
