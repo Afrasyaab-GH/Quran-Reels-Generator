@@ -867,6 +867,19 @@
             z-index: 1;
         }
 
+        .safe-guide-line {
+            position: absolute;
+            left: 8%;
+            right: 8%;
+            border-top: 1px dashed rgba(255, 209, 102, 0.75);
+            display: none;
+            z-index: 2;
+            pointer-events: none;
+        }
+
+        .safe-guide-line.top { top: 12%; }
+        .safe-guide-line.bottom { bottom: 12%; }
+
         /* ═══════════════════════════════════════
            🔧 Advanced Options
         ═══════════════════════════════════════ */
@@ -935,6 +948,21 @@
                 <button class="icon-btn" onclick="toggleTheme()" id="themeBtn">🌙</button>
             </div>
         </header>
+
+        <!-- ═══════════════════════════════════
+             ⚠️ Pexels key banner (auto-shown when no key)
+        ═════════════════════════════════════ -->
+        <div id="pexelsBanner" style="display:none; margin: 0 0 12px 0; padding: 12px 16px; border-radius: 10px; background: linear-gradient(135deg, #4a3500, #6b4c00); border: 1px solid #8a6500; color: #ffe5a0; font-size: 0.9rem; line-height: 1.5;">
+            <strong>⚠️ <span id="bannerTitle">لا يوجد مفتاح Pexels</span></strong>
+            <span id="bannerText">— الفيديوهات ستستخدم خلفية متدرجة متحركة بدلاً من فيديوهات حقيقية. احصل على مفتاح مجاني من
+                <a href="https://www.pexels.com/api/" target="_blank" rel="noopener" style="color:#ffd166; text-decoration:underline;">pexels.com/api</a>
+                ثم الصقه هنا:</span>
+            <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
+                <input type="text" id="bannerPexelsInput" placeholder="Pexels API key" style="flex:1; min-width:220px; padding:8px 12px; border-radius:6px; border:1px solid #8a6500; background:#2a1f00; color:#fff;">
+                <button type="button" id="bannerSaveBtn" style="padding:8px 18px; border-radius:6px; border:none; background:#ffd166; color:#3a2800; font-weight:bold; cursor:pointer;">حفظ</button>
+                <button type="button" id="bannerDismissBtn" style="padding:8px 14px; border-radius:6px; border:1px solid #8a6500; background:transparent; color:#ffe5a0; cursor:pointer;">إخفاء</button>
+            </div>
+        </div>
 
         <!-- ═══════════════════════════════════
              📑 Tabs Navigation
@@ -1029,6 +1057,18 @@
                         </div>
                     </div>
 
+                    <!-- تحسينات الخلفية -->
+                    <div class="form-group">
+                        <label class="form-label">✨ تحسين الخلفية</label>
+                        <select class="form-select" id="backgroundEffect">
+                            <option value="enhance" selected>🌟 تحسين ذكي (افتراضي)</option>
+                            <option value="dark">🌙 خلفية مظلمة</option>
+                            <option value="saturate">🎨 ألوان غنية</option>
+                            <option value="none">⚪ بدون تأثير</option>
+                        </select>
+                        <p class="form-hint">تحسين جودة الخلفيات المرئية</p>
+                    </div>
+
                     <!-- خيارات متقدمة -->
                     <div class="advanced-toggle" onclick="toggleAdvanced()">
                         <span>⚡</span>
@@ -1089,6 +1129,77 @@
                         </div>
                         <div class="form-group" id="searchInputGroup" style="display: none;">
                             <input type="text" class="form-input" id="bgQuery" placeholder="اكتب: بحر، سماء، جبال...">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">🎞️ مشهد الخلفية (Scene Pack)</label>
+                            <select class="form-select" id="scenePack">
+                                <option value="nature_calm" selected>🌿 Nature Calm</option>
+                                <option value="night_sky">🌌 Night Sky</option>
+                                <option value="ocean">🌊 Ocean</option>
+                                <option value="desert">🏜️ Desert</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">🎚️ انتقال الخلفية (Crossfade)</label>
+                            <select class="form-select" id="bgCrossfadeSec">
+                                <option value="0.2">0.2s - سريع</option>
+                                <option value="0.5" selected>0.5s - متوازن</option>
+                                <option value="0.8">0.8s - ناعم</option>
+                                <option value="1.0">1.0s - سينمائي</option>
+                            </select>
+                        </div>
+                        <div class="toggle-item" style="border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 16px; margin-top: 8px;">
+                            <div class="toggle-info">
+                                <h4>تحسين تباين النص تلقائياً</h4>
+                                <span>يضبط حدود النص حسب سطوع الخلفية</span>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="adaptiveTextContrast" checked>
+                                <span class="switch-slider"></span>
+                            </label>
+                        </div>
+                        <div class="toggle-item" style="border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 16px; margin-top: 8px;">
+                            <div class="toggle-info">
+                                <h4>إظهار Safe Area في المعاينة</h4>
+                                <span>يعرض حدود قص ريلز/شورتس</span>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="safeAreaGuides" onchange="updatePreview()">
+                                <span class="switch-slider"></span>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">📏 Safe Area Padding (px)</label>
+                            <input type="number" class="form-input" id="safeAreaPaddingPx" min="0" max="180" step="2" value="48" onchange="updatePreview()">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">🔊 Audio Profile</label>
+                            <select class="form-select" id="audioProfile">
+                                <option value="studio" selected>Studio (Default)</option>
+                                <option value="mobile">Mobile</option>
+                                <option value="youtube">YouTube</option>
+                                <option value="tiktok">TikTok</option>
+                            </select>
+                        </div>
+                        <div class="toggle-item" style="border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 16px; margin-top: 8px;">
+                            <div class="toggle-info">
+                                <h4>تنقية الضوضاء (Denoise)</h4>
+                                <span>تحسين نقاء التلاوة</span>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="audioDenoise">
+                                <span class="switch-slider"></span>
+                            </label>
+                        </div>
+                        <div class="toggle-item" style="border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 16px; margin-top: 8px;">
+                            <div class="toggle-info">
+                                <h4>De-ess</h4>
+                                <span>تقليل حدة حروف الصفير</span>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="audioDeEss">
+                                <span class="switch-slider"></span>
+                            </label>
                         </div>
                     </div>
 
@@ -1205,6 +1316,18 @@
                             <span class="switch-slider"></span>
                         </label>
                     </div>
+                </div>
+
+                <!-- تحسينات الخلفية للدفعة -->
+                <div class="form-group">
+                    <label class="form-label">✨ تحسين الخلفية</label>
+                    <select class="form-select" id="batchBackgroundEffect">
+                        <option value="enhance" selected>🌟 تحسين ذكي (افتراضي)</option>
+                        <option value="dark">🌙 خلفية مظلمة</option>
+                        <option value="saturate">🎨 ألوان غنية</option>
+                        <option value="none">⚪ بدون تأثير</option>
+                    </select>
+                    <p class="form-hint">تحسين جودة الخلفيات المرئية</p>
                 </div>
 
                 <!-- خيارات متقدمة للدفعة -->
@@ -1364,6 +1487,8 @@
             <div class="tab-panel" id="settings-panel">
                 <!-- Preview -->
                 <div class="preview-box">
+                    <div class="safe-guide-line top" id="safeGuideTop"></div>
+                    <div class="safe-guide-line bottom" id="safeGuideBottom"></div>
                     <div class="preview-ar" id="previewAr">بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ</div>
                     <div class="preview-en" id="previewEn">In the name of Allah, the Entirely Merciful</div>
                 </div>
@@ -2001,7 +2126,15 @@
             aspectRatio: '9:16',
             dynamicBg: true,
             useGlow: true,
-            useVignette: true
+            useVignette: true,
+            scenePack: 'nature_calm',
+            bgCrossfadeSec: '0.5',
+            adaptiveTextContrast: true,
+            safeAreaGuides: false,
+            safeAreaPaddingPx: '48',
+            audioProfile: 'studio',
+            audioDenoise: false,
+            audioDeEss: false
         };
 
         // ✅ حفظ إعدادات الفيديو
@@ -2014,7 +2147,15 @@
                 aspectRatio: document.getElementById('aspectRatio')?.value || '9:16',
                 dynamicBg: document.getElementById('dynamicBg')?.checked ?? true,
                 useGlow: document.getElementById('useGlow')?.checked ?? true,
-                useVignette: document.getElementById('useVignette')?.checked ?? true
+                useVignette: document.getElementById('useVignette')?.checked ?? true,
+                scenePack: document.getElementById('scenePack')?.value || 'nature_calm',
+                bgCrossfadeSec: document.getElementById('bgCrossfadeSec')?.value || '0.5',
+                adaptiveTextContrast: document.getElementById('adaptiveTextContrast')?.checked ?? true,
+                safeAreaGuides: document.getElementById('safeAreaGuides')?.checked ?? false,
+                safeAreaPaddingPx: document.getElementById('safeAreaPaddingPx')?.value || '48',
+                audioProfile: document.getElementById('audioProfile')?.value || 'studio',
+                audioDenoise: document.getElementById('audioDenoise')?.checked ?? false,
+                audioDeEss: document.getElementById('audioDeEss')?.checked ?? false
             };
             localStorage.setItem('quran_video_settings', JSON.stringify(settings));
         }
@@ -2037,7 +2178,7 @@
 
         // ✅ حفظ تلقائي عند تغيير أي إعداد
         function initVideoSettingsAutoSave() {
-            const settingsIds = ['fontSelect', 'fontEnSelect', 'fpsSelect', 'qualitySelect', 'aspectRatio', 'dynamicBg', 'useGlow', 'useVignette'];
+            const settingsIds = ['fontSelect', 'fontEnSelect', 'fpsSelect', 'qualitySelect', 'aspectRatio', 'dynamicBg', 'useGlow', 'useVignette', 'scenePack', 'bgCrossfadeSec', 'adaptiveTextContrast', 'safeAreaGuides', 'safeAreaPaddingPx', 'audioProfile', 'audioDenoise', 'audioDeEss'];
             settingsIds.forEach(id => {
                 const el = document.getElementById(id);
                 if (el) {
@@ -2495,6 +2636,15 @@
                 useGlow: useGlow.checked,
                 useVignette: useVignette.checked,
                 bgQuery: useSearch.checked ? bgQuery.value : '',
+                backgroundEffect: document.getElementById('backgroundEffect')?.value || 'enhance',
+                scenePack: document.getElementById('scenePack')?.value || 'nature_calm',
+                bgCrossfadeSec: parseFloat(document.getElementById('bgCrossfadeSec')?.value || '0.5'),
+                adaptiveTextContrast: document.getElementById('adaptiveTextContrast')?.checked ?? true,
+                safeAreaGuides: document.getElementById('safeAreaGuides')?.checked ?? false,
+                safeAreaPaddingPx: parseInt(document.getElementById('safeAreaPaddingPx')?.value || '48'),
+                audioProfile: document.getElementById('audioProfile')?.value || 'studio',
+                audioDenoise: document.getElementById('audioDenoise')?.checked ?? false,
+                audioDeEss: document.getElementById('audioDeEss')?.checked ?? false,
                 pexelsKey: localStorage.getItem('user_pexels_key') || '',
                 style: style
             };
@@ -3036,12 +3186,54 @@
                 document.getElementById('pexelsKey').value = pexelsKey;
             }
             
+            updatePexelsBanner();
             updatePreview();
         }
+
+        function updatePexelsBanner() {
+            const banner = document.getElementById('pexelsBanner');
+            if (!banner) return;
+            const hasKey = !!(localStorage.getItem('user_pexels_key') || '').trim();
+            const dismissed = sessionStorage.getItem('pexels_banner_dismissed') === '1';
+            // Also check backend env via /api/config (best-effort) — if server has a key, hide
+            const serverHas = window.__serverHasPexels === true;
+            banner.style.display = (hasKey || serverHas || dismissed) ? 'none' : 'block';
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const saveBtn = document.getElementById('bannerSaveBtn');
+            const dismissBtn = document.getElementById('bannerDismissBtn');
+            const input = document.getElementById('bannerPexelsInput');
+            if (saveBtn && input) {
+                saveBtn.addEventListener('click', () => {
+                    const v = (input.value || '').trim();
+                    if (v.length < 10) { alert('المفتاح يبدو قصيراً جداً'); return; }
+                    localStorage.setItem('user_pexels_key', v);
+                    const settingsField = document.getElementById('pexelsKey');
+                    if (settingsField) settingsField.value = v;
+                    updatePexelsBanner();
+                });
+            }
+            if (dismissBtn) {
+                dismissBtn.addEventListener('click', () => {
+                    sessionStorage.setItem('pexels_banner_dismissed', '1');
+                    updatePexelsBanner();
+                });
+            }
+            // Probe server config to see if PEXELS_API_KEYS is set server-side
+            fetch('/api/config').then(r => r.json()).then(cfg => {
+                window.__serverHasPexels = !!(cfg && cfg.has_pexels_key);
+                updatePexelsBanner();
+            }).catch(() => {});
+        });
 
         function updatePreview() {
             const ar = document.getElementById('previewAr');
             const en = document.getElementById('previewEn');
+            const guideTop = document.getElementById('safeGuideTop');
+            const guideBottom = document.getElementById('safeGuideBottom');
+            const showGuides = document.getElementById('safeAreaGuides')?.checked;
+            const padPx = parseInt(document.getElementById('safeAreaPaddingPx')?.value || '48');
             
             ar.style.color = document.getElementById('arColor').value;
             ar.style.fontSize = `${1.5 * parseFloat(document.getElementById('arSize').value)}rem`;
@@ -3052,6 +3244,14 @@
             en.style.fontSize = `${0.85 * parseFloat(document.getElementById('enSize').value)}rem`;
             const enOutline = parseInt(document.getElementById('enOutlineWidth').value) / 5;
             en.style.webkitTextStroke = enOutline > 0 ? `${enOutline}px ${document.getElementById('enOutlineColor').value}` : 'none';
+
+            if (guideTop && guideBottom) {
+                const topPercent = Math.max(4, Math.min(25, (padPx / 320) * 100));
+                guideTop.style.top = `${topPercent}%`;
+                guideBottom.style.bottom = `${topPercent}%`;
+                guideTop.style.display = showGuides ? 'block' : 'none';
+                guideBottom.style.display = showGuides ? 'block' : 'none';
+            }
         }
 
         function saveAllSettings() {
@@ -3309,7 +3509,8 @@
             const effects = {
                 dynamicBg: document.getElementById('batchDynamicBg').checked,
                 useGlow: document.getElementById('batchUseGlow').checked,
-                useVignette: document.getElementById('batchUseVignette').checked
+                useVignette: document.getElementById('batchUseVignette').checked,
+                backgroundEffect: document.getElementById('batchBackgroundEffect')?.value || 'enhance'
             };
 
             // ✅ إعدادات الفيديو الكاملة
@@ -3319,7 +3520,16 @@
                 aspectRatio: document.getElementById('batchAspectRatio')?.value || '9:16',
                 font: document.getElementById('batchFontSelect')?.value || 'Arabic',
                 fontEn: document.getElementById('batchFontEnSelect')?.value || 'English',
-                bgQuery: document.getElementById('batchUseSearch')?.checked ? (document.getElementById('batchBgQuery')?.value || '') : ''
+                bgQuery: document.getElementById('batchUseSearch')?.checked ? (document.getElementById('batchBgQuery')?.value || '') : '',
+                backgroundEffect: document.getElementById('batchBackgroundEffect')?.value || 'enhance',
+                scenePack: document.getElementById('scenePack')?.value || 'nature_calm',
+                bgCrossfadeSec: parseFloat(document.getElementById('bgCrossfadeSec')?.value || '0.5'),
+                adaptiveTextContrast: document.getElementById('adaptiveTextContrast')?.checked ?? true,
+                safeAreaGuides: document.getElementById('safeAreaGuides')?.checked ?? false,
+                safeAreaPaddingPx: parseInt(document.getElementById('safeAreaPaddingPx')?.value || '48'),
+                audioProfile: document.getElementById('audioProfile')?.value || 'studio',
+                audioDenoise: document.getElementById('audioDenoise')?.checked ?? false,
+                audioDeEss: document.getElementById('audioDeEss')?.checked ?? false
             };
 
             batchItems.push({
@@ -3469,9 +3679,25 @@
                     fontEn: item.fontEn || 'English',
                     fps: item.fps || 20,
                     quality: item.quality || '720',
-                    bgQuery: item.bgQuery || ''
+                    bgQuery: item.bgQuery || '',
+                    scenePack: item.scenePack || 'nature_calm',
+                    bgCrossfadeSec: item.bgCrossfadeSec ?? 0.5,
+                    adaptiveTextContrast: item.adaptiveTextContrast ?? true,
+                    safeAreaGuides: item.safeAreaGuides ?? false,
+                    safeAreaPaddingPx: item.safeAreaPaddingPx ?? 48,
+                    audioProfile: item.audioProfile || 'studio',
+                    audioDenoise: item.audioDenoise ?? false,
+                    audioDeEss: item.audioDeEss ?? false
                 })),
                 pexelsKey: localStorage.getItem('user_pexels_key') || '',
+                scenePack: document.getElementById('scenePack')?.value || 'nature_calm',
+                bgCrossfadeSec: parseFloat(document.getElementById('bgCrossfadeSec')?.value || '0.5'),
+                adaptiveTextContrast: document.getElementById('adaptiveTextContrast')?.checked ?? true,
+                safeAreaGuides: document.getElementById('safeAreaGuides')?.checked ?? false,
+                safeAreaPaddingPx: parseInt(document.getElementById('safeAreaPaddingPx')?.value || '48'),
+                audioProfile: document.getElementById('audioProfile')?.value || 'studio',
+                audioDenoise: document.getElementById('audioDenoise')?.checked ?? false,
+                audioDeEss: document.getElementById('audioDeEss')?.checked ?? false,
                 style: getStyleSettings()
             };
             
