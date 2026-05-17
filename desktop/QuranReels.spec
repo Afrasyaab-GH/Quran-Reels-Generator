@@ -195,7 +195,7 @@ if IS_MAC:
         icon=ICON_FILE,
         bundle_identifier="com.quranreels.desktop",
         info_plist={
-            "CFBundleShortVersionString": "1.1.0",
+            "CFBundleShortVersionString": "0.2.4",
             "NSHighResolutionCapable": True,
             "LSMinimumSystemVersion": "10.14",
         },

@@ -23,12 +23,12 @@ VSVersionInfo(
           [
             StringStruct(u'CompanyName',      u'Quran Reels'),
             StringStruct(u'FileDescription',  u'Quran Reels Generator - Desktop'),
-            StringStruct(u'FileVersion',      u'1.1.0.0'),
+            StringStruct(u'FileVersion',      u'0.2.4.0'),
             StringStruct(u'InternalName',     u'QuranReels'),
             StringStruct(u'LegalCopyright',   u'\u00a9 2026 Quran Reels. All rights reserved.'),
             StringStruct(u'OriginalFilename', u'QuranReels.exe'),
             StringStruct(u'ProductName',      u'Quran Reels Generator'),
-            StringStruct(u'ProductVersion',   u'1.1.0.0'),
+            StringStruct(u'ProductVersion',   u'0.2.4.0'),
           ])
       ]),
     VarFileInfo([VarStruct(u'Translation', [1033, 1200])])

@@ -9,7 +9,7 @@
 
 !define APP_NAME       "Quran Reels Generator"
 !define APP_PUBLISHER  "Quran Reels"
-!define APP_VERSION    "1.1.0"
+!define APP_VERSION    "0.2.4"
 !define APP_EXE        "QuranReels.exe"
 !define APP_DIST_DIR   "..\dist\QuranReels"
 !define APP_REG_KEY    "Software\Microsoft\Windows\CurrentVersion\Uninstall\QuranReels"
