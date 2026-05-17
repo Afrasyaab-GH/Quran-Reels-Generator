@@ -22,7 +22,7 @@ from quran_data import (
 )
 from database import (
     db_get_job, db_update_job, db_get_history, db_add_history,
-    db_get_pending_jobs, db_cleanup_old_jobs,
+    db_get_pending_jobs, db_cleanup_old_jobs, db_mark_downloaded, db_get_all_jobs,
 )
 from jobs import (
     create_job, get_job, update_job_status, JOBS, JOBS_LOCK,
@@ -335,7 +335,8 @@ def prog():
 
 def download_result():
     lang = get_request_lang()
-    job = get_job(request.args.get('jobId'))
+    job_id = request.args.get('jobId')
+    job = get_job(job_id)
     if not job:
         return jsonify({'error': tr_api('job_not_found', lang)}), 404
     
@@ -344,7 +345,16 @@ def download_result():
         return jsonify({'error': tr_api('file_not_found', lang)}), 404
     
     # Get filename from history or use default
-    filename = f"Quran_video_{request.args.get('jobId')[:8]}.mp4"
+    filename = f"Quran_video_{job_id[:8]}.mp4"
+
+    # Optional tracking for explicit UI downloads.
+    track = str(request.args.get('track', '0')).lower() in ('1', 'true', 'yes')
+    if track:
+        try:
+            db_mark_downloaded(job_id, request.args.get('sessionId'))
+        except Exception as e:
+            print(f"[DownloadTracking] Failed to track download for {job_id}: {e}")
+
     return send_file(output_path, as_attachment=True, download_name=filename)
 
 def cancel_process():
@@ -386,7 +396,18 @@ def get_history_route():
             'filename': h['download_filename'],
             'status': h['status'],
             'createdAt': h['created_at'],
+            'createdAtTs': None,
+            'outputPath': h['output_path'],
+            'downloadCount': int(h.get('download_count') or 0),
+            'downloadedAt': h.get('downloaded_at'),
         }
+
+        # Backward-compatible timestamp for frontends expecting Unix seconds.
+        try:
+            if h.get('created_at'):
+                item['createdAtTs'] = int(datetime.datetime.fromisoformat(h['created_at']).timestamp())
+        except Exception:
+            item['createdAtTs'] = None
         
         # Add download URL if video exists
         if h['output_path'] and os.path.exists(h['output_path']):
@@ -395,6 +416,175 @@ def get_history_route():
         result.append(item)
     
     return jsonify({'ok': True, 'history': result})
+
+
+def _classify_media_status(job_status, output_path, created_at_iso, download_count):
+    now = datetime.datetime.now(datetime.timezone.utc)
+
+    if job_status in ('error', 'cancelled'):
+        return 'failed'
+
+    created_at_dt = None
+    try:
+        if created_at_iso:
+            created_at_dt = datetime.datetime.fromisoformat(created_at_iso)
+            if created_at_dt.tzinfo is None:
+                created_at_dt = created_at_dt.replace(tzinfo=datetime.timezone.utc)
+    except Exception:
+        created_at_dt = None
+
+    is_expired_by_age = False
+    if created_at_dt:
+        is_expired_by_age = (now - created_at_dt).total_seconds() > 12 * 3600
+
+    file_exists = bool(output_path and os.path.exists(output_path))
+    if not file_exists and (job_status == 'complete' or is_expired_by_age):
+        return 'expired'
+
+    if job_status == 'complete' and file_exists:
+        if int(download_count or 0) > 0:
+            return 'downloaded'
+        return 'undownloaded'
+
+    return 'all'
+
+
+def media_hub_route():
+    """Media Hub feed with filter support for all/downloaded/undownloaded/failed/expired."""
+    session_id = request.args.get('sessionId')
+    media_filter = (request.args.get('filter') or 'all').lower()
+    limit = request.args.get('limit', 200, type=int)
+    limit = max(1, min(limit, 500))
+
+    history = db_get_history(limit, session_id)
+    items = []
+    seen_job_ids = set()
+
+    for h in history:
+        job_status = h.get('status') or 'pending'
+        output_path = h.get('output_path')
+        download_count = int(h.get('download_count') or 0)
+        media_status = _classify_media_status(job_status, output_path, h.get('created_at'), download_count)
+
+        item = {
+            'id': h.get('id'),
+            'jobId': h.get('job_id'),
+            'title': h.get('title'),
+            'reciter': h.get('reciter'),
+            'surah': h.get('surah'),
+            'startAyah': h.get('start_ayah'),
+            'endAyah': h.get('end_ayah'),
+            'quality': h.get('quality'),
+            'fps': h.get('fps'),
+            'filename': h.get('download_filename'),
+            'createdAt': h.get('created_at'),
+            'downloadedAt': h.get('downloaded_at'),
+            'downloadCount': download_count,
+            'jobStatus': job_status,
+            'mediaStatus': media_status,
+            'outputPath': output_path,
+            'downloadUrl': f"/api/download?jobId={h.get('job_id')}" if output_path and os.path.exists(output_path) else None,
+        }
+
+        seen_job_ids.add(h.get('job_id'))
+
+        if media_filter == 'all' or media_status == media_filter:
+            items.append(item)
+
+    # Include failed/cancelled jobs that do not appear in history.
+    if media_filter in ('all', 'failed'):
+        jobs = db_get_all_jobs(limit=limit, session_id=session_id)
+        for j in jobs:
+            if j.get('id') in seen_job_ids:
+                continue
+            j_status = j.get('status')
+            if j_status not in ('error', 'cancelled'):
+                continue
+
+            title = f"Failed job {j.get('id', '')[:8]}"
+            reciter = None
+            surah = None
+            start_ayah = None
+            end_ayah = None
+            try:
+                cfg = json.loads(j.get('config_json') or '{}')
+                reciter = cfg.get('reciter')
+                surah = cfg.get('surah')
+                start_ayah = cfg.get('startAyah')
+                end_ayah = cfg.get('endAyah')
+                if cfg.get('lang') == 'ar' and surah and start_ayah and end_ayah:
+                    title = f"فيديو {surah} ({start_ayah}-{end_ayah})"
+                elif surah and start_ayah and end_ayah:
+                    title = f"Video {surah} ({start_ayah}-{end_ayah})"
+            except Exception:
+                pass
+
+            failed_item = {
+                'id': None,
+                'jobId': j.get('id'),
+                'title': title,
+                'reciter': reciter,
+                'surah': surah,
+                'startAyah': start_ayah,
+                'endAyah': end_ayah,
+                'quality': None,
+                'fps': None,
+                'filename': None,
+                'createdAt': j.get('created_at'),
+                'downloadedAt': None,
+                'downloadCount': 0,
+                'jobStatus': j_status,
+                'mediaStatus': 'failed',
+                'outputPath': j.get('output_path'),
+                'downloadUrl': None,
+            }
+            items.append(failed_item)
+
+    return jsonify({'ok': True, 'filter': media_filter, 'items': items})
+
+
+def mark_downloaded_route():
+    """Explicit endpoint to mark a video as downloaded by UI action."""
+    data = request.json or {}
+    job_id = data.get('jobId')
+    session_id = data.get('sessionId')
+    if not job_id:
+        return jsonify({'ok': False, 'error': 'jobId is required'}), 400
+
+    db_mark_downloaded(job_id, session_id)
+    return jsonify({'ok': True})
+
+
+def storage_info():
+    """Return user-facing storage locations for generated videos."""
+    return jsonify({
+        'ok': True,
+        'outputsDir': OUTPUTS_DIR,
+        'note': 'Generated videos are saved in outputsDir before browser download.'
+    })
+
+
+def get_job_config_route():
+    """Return original generation config for edit/regenerate UX."""
+    lang = get_request_lang()
+    job_id = request.args.get('jobId')
+    if not job_id:
+        return jsonify({'ok': False, 'error': tr_api('invalid_data', lang)}), 400
+
+    db_job = db_get_job(job_id)
+    if not db_job:
+        return jsonify({'ok': False, 'error': tr_api('job_not_found', lang)}), 404
+
+    config_json = db_job.get('config_json')
+    if not config_json:
+        return jsonify({'ok': False, 'error': 'Job config not available'}), 404
+
+    try:
+        cfg = json.loads(config_json)
+    except Exception:
+        return jsonify({'ok': False, 'error': 'Invalid job config'}), 500
+
+    return jsonify({'ok': True, 'jobId': job_id, 'config': cfg})
 
 def delete_history_item(history_id):
     """Delete a single history item"""
@@ -675,6 +865,10 @@ def register_routes(app, limiter):
     app.add_url_rule("/api/download", "download_result", download_result)
     app.add_url_rule("/api/cancel", "cancel_process", cancel_process, methods=["POST"])
     app.add_url_rule("/api/history", "get_history", get_history_route)
+    app.add_url_rule("/api/media-hub", "media_hub", media_hub_route)
+    app.add_url_rule("/api/media/mark-downloaded", "mark_downloaded", mark_downloaded_route, methods=["POST"])
+    app.add_url_rule("/api/storage-info", "storage_info", storage_info)
+    app.add_url_rule("/api/job-config", "get_job_config", get_job_config_route)
     app.add_url_rule("/api/history/<int:history_id>", "delete_history_item", delete_history_item, methods=["DELETE"])
     app.add_url_rule("/api/history/clear", "clear_all_history", clear_all_history, methods=["POST"])
     app.add_url_rule("/api/my-jobs", "get_my_jobs", get_my_jobs)
