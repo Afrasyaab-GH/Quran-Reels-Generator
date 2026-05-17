@@ -1,0 +1,21 @@
+version: '3.9'
+
+services:
+  quran-reels:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: quran-reels-standalone
+    ports:
+      - "7860:7860"
+    environment:
+      PORT: "7860"
+      # Optional integrations
+      PEXELS_API_KEYS: ""
+      YOUTUBE_CLIENT_ID: ""
+      YOUTUBE_CLIENT_SECRET: ""
+      YOUTUBE_REDIRECT_URI: ""
+    volumes:
+      - ./outputs:/app/outputs
+      - ./temp_workspaces:/app/temp_workspaces
+    restart: unless-stopped

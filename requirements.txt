@@ -1,0 +1,18 @@
+Flask==3.0.0
+flask-cors==4.0.0
+flask-limiter==3.5.0
+moviepy==1.0.3
+pydub==0.25.1
+requests==2.31.0
+deep-translator==1.11.4
+Pillow==11.2.1
+proglog==0.1.10
+decorator==4.4.2
+gunicorn
+arabic-reshaper
+python-bidi
+numpy
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
+audioop-lts; python_version >= "3.13"
