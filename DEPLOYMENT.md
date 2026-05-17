@@ -175,4 +175,4 @@ ffmpeg -version
 ---
 
 **Last Updated**: May 17, 2026
-**Version**: 1.1 (Media Hub + Download Tracking + Edit/Regenerate)
+**Version**: 0.2.4
