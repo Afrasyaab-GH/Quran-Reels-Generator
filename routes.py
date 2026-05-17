@@ -27,7 +27,17 @@ from database import (
 from jobs import (
     create_job, get_job, update_job_status, JOBS, JOBS_LOCK,
 )
-from video import build_video_task
+
+# Lazy-load the heavy video pipeline to keep app startup fast.
+_build_video_task_cached = None
+
+
+def _get_build_video_task():
+    global _build_video_task_cached
+    if _build_video_task_cached is None:
+        from video import build_video_task as _build_video_task  # local import by design
+        _build_video_task_cached = _build_video_task
+    return _build_video_task_cached
 
 START_TIME = time.time()
 
@@ -282,7 +292,7 @@ def gen():
     update_job_status(job_id, 0, 'processing')
 
     threading.Thread(
-        target=build_video_task,
+        target=_get_build_video_task(),
         args=(
             job_id,
             d.get('pexelsKey', ''),
@@ -609,7 +619,7 @@ def recover_pending_jobs():
             
             def start_job(jid, cfg, style):
                 threading.Thread(
-                    target=build_video_task,
+                    target=_get_build_video_task(),
                     args=(
                         jid,
                         cfg.get('pexelsKey', ''),
