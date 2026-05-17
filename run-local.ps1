@@ -45,8 +45,73 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
+# ── 3.5 Load / prompt for API keys (persisted to .env.local.ps1) ─────────────
+$envFile = Join-Path $PSScriptRoot ".env.local.ps1"
+if (Test-Path $envFile) {
+    Write-Host "[3.5/4] Loading saved API keys from .env.local.ps1" -ForegroundColor DarkGray
+    . $envFile
+}
+
+if (-not $env:PEXELS_API_KEYS -or $env:PEXELS_API_KEYS.Trim().Length -lt 10) {
+    Write-Host ""
+    Write-Host "  No PEXELS_API_KEYS set. Videos will use procedural animated backgrounds." -ForegroundColor Yellow
+    Write-Host "  Get a free key at https://www.pexels.com/api/ (takes ~30s)." -ForegroundColor Yellow
+    $pexInput = Read-Host "W8CSsQysKYGNabsluBJQRoVwUkCg32ha6QFCzzFb3lxdrukxvbBTOqEx"
+    if ($pexInput -and $pexInput.Trim().Length -ge 10) {
+        $env:PEXELS_API_KEYS = $pexInput.Trim()
+        $line = '$env:PEXELS_API_KEYS = "' + $pexInput.Trim() + '"'
+        Add-Content -Path $envFile -Value $line -Encoding UTF8
+        Write-Host "  Saved to .env.local.ps1 — will auto-load next time." -ForegroundColor Green
+    }
+}
+
+if ($env:PEXELS_API_KEYS) {
+    Write-Host "[3.5/4] Pexels: key loaded (length=$($env:PEXELS_API_KEYS.Length))" -ForegroundColor Green
+}
+if ($env:PIXABAY_API_KEY) {
+    Write-Host "[3.5/4] Pixabay: key loaded" -ForegroundColor Green
+}
+
+# Verify ImageMagick command for optional MoviePy tooling paths
+$validImageMagick = $false
+if ($env:IMAGEMAGICK_BINARY) {
+    if ((Test-Path $env:IMAGEMAGICK_BINARY) -or ($env:IMAGEMAGICK_BINARY -eq "auto-detect")) {
+        $validImageMagick = $true
+    }
+}
+
+if (-not $validImageMagick) {
+    if (Get-Command magick -ErrorAction SilentlyContinue) {
+        $env:IMAGEMAGICK_BINARY = (Get-Command magick).Source
+    } elseif (Get-Command convert -ErrorAction SilentlyContinue) {
+        $convertPath = (Get-Command convert).Source
+        if ($convertPath -and ($convertPath -match "ImageMagick")) {
+            $env:IMAGEMAGICK_BINARY = $convertPath
+        } else {
+            $env:IMAGEMAGICK_BINARY = "auto-detect"
+        }
+    } else {
+        Write-Host "[3/4] ImageMagick not found - installing via winget..." -ForegroundColor Yellow
+        winget install --id ImageMagick.ImageMagick -e --accept-package-agreements --accept-source-agreements
+        if (Get-Command magick -ErrorAction SilentlyContinue) {
+            $env:IMAGEMAGICK_BINARY = (Get-Command magick).Source
+        } elseif (Get-Command convert -ErrorAction SilentlyContinue) {
+            $convertPath = (Get-Command convert).Source
+            if ($convertPath -and ($convertPath -match "ImageMagick")) {
+                $env:IMAGEMAGICK_BINARY = $convertPath
+            } else {
+                $env:IMAGEMAGICK_BINARY = "auto-detect"
+            }
+        } else {
+            # Keep app import-safe even if command is not yet visible in current shell PATH.
+            $env:IMAGEMAGICK_BINARY = "auto-detect"
+            Write-Host "[3/4] ImageMagick still not visible in PATH; continuing with fallback (auto-detect)." -ForegroundColor Yellow
+        }
+    }
+}
+
 # ── 4. Start server + open browser ───────────────────────────────────────────
-$url = "http://127.0.0.1:$Port/UI.html"
+$url = "http://127.0.0.1:$Port/"
 Write-Host "[4/4] Starting server on $url ..." -ForegroundColor Green
 Write-Host ""
 Write-Host "  Press Ctrl+C to stop." -ForegroundColor DarkGray
@@ -63,4 +128,5 @@ if (-not $NoBrowser) {
 
 $env:FLASK_APP  = "main.py"
 $env:FLASK_ENV  = "production"
+$env:PORT = "$Port"
 & $pythonExe main.py

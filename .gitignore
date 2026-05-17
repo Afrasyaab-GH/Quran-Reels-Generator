@@ -1,6 +1,17 @@
 # Database (stale data shouldn't be in the repo)
 quran_jobs.db
 
+# Local secrets (API keys persisted by run-local.ps1)
+.env.local.ps1
+.env.local
+.env
+
+# Desktop build artifacts
+build/
+dist/
+desktop/ffmpeg/
+*.spec.bak
+
 # Python
 __pycache__/
 *.py[cod]
@@ -35,6 +46,9 @@ my_temp/
 temp_videos/
 temp_audio/
 local_bgs/
+vision/
+dist-userdata-test/
+temp_mix_*.mp4
 
 # Backup files
 *.bak

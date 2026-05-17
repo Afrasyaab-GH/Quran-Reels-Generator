@@ -10,6 +10,7 @@ import datetime
 import logging
 import traceback
 import gc
+import math
 import random
 import requests
 import json
@@ -24,6 +25,26 @@ os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 from flask import Flask, request, jsonify, send_file, g
 from flask_cors import CORS
 from contextlib import contextmanager
+
+# Configure ImageMagick discovery before importing moviepy.editor.
+# This prevents import-time crashes on fresh Windows setups.
+_im_candidates = ["magick", "convert"] if os.name == "nt" else ["convert", "magick"]
+_im_env = os.environ.get("IMAGEMAGICK_BINARY", "").strip()
+if _im_env:
+    _is_valid_path = os.path.isfile(_im_env)
+    if not (_is_valid_path or _im_env == "auto-detect"):
+        _resolved_cmd = shutil.which(_im_env)
+        if _resolved_cmd and os.path.isfile(_resolved_cmd):
+            _im_env = _resolved_cmd
+        else:
+            _im_env = ""
+if not _im_env:
+    _resolved_candidates = [shutil.which(c) for c in _im_candidates]
+    _im_env = next((p for p in _resolved_candidates if p and os.path.isfile(p)), "auto-detect")
+if os.name == "nt" and _im_env.lower() == "convert":
+    # Windows "convert" can resolve to a non-ImageMagick utility.
+    _im_env = "auto-detect"
+os.environ["IMAGEMAGICK_BINARY"] = _im_env
 
 # Media Processing Imports
 import numpy as np
@@ -48,12 +69,35 @@ from deep_translator import GoogleTranslator
 # 🔧 FFmpeg Path Configuration
 # ==========================================
 # Explicit paths so app works even when ffmpeg is not on the system PATH yet
-_FFMPEG_CANDIDATES = [
+# When bundled by PyInstaller, look beside the executable / in _MEIPASS first.
+def _bundled_bin_dirs():
+    dirs = []
+    if getattr(sys, "frozen", False):
+        exe_dir = os.path.dirname(sys.executable)
+        dirs.extend([
+            os.path.join(exe_dir, "ffmpeg"),
+            os.path.join(exe_dir, "bin"),
+            exe_dir,
+        ])
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            dirs.extend([
+                os.path.join(meipass, "ffmpeg"),
+                os.path.join(meipass, "bin"),
+                meipass,
+            ])
+    return dirs
+
+_ffmpeg_ext = ".exe" if os.name == "nt" else ""
+_bundled_ffmpeg = [os.path.join(d, "ffmpeg" + _ffmpeg_ext) for d in _bundled_bin_dirs()]
+_bundled_ffprobe = [os.path.join(d, "ffprobe" + _ffmpeg_ext) for d in _bundled_bin_dirs()]
+
+_FFMPEG_CANDIDATES = _bundled_ffmpeg + [
     r"D:\Tools\ffmpeg\ffmpeg-8.1.1-full_build\bin\ffmpeg.exe",
     r"C:\ffmpeg\bin\ffmpeg.exe",
     "ffmpeg",  # fallback: rely on system PATH
 ]
-_FFPROBE_CANDIDATES = [
+_FFPROBE_CANDIDATES = _bundled_ffprobe + [
     r"D:\Tools\ffmpeg\ffmpeg-8.1.1-full_build\bin\ffprobe.exe",
     r"C:\ffmpeg\bin\ffprobe.exe",
     "ffprobe",
@@ -96,36 +140,101 @@ STUDIO_DRY_FILTER = (
     "loudnorm=I=-16:TP=-1.5:LRA=11"
 )
 
+AUDIO_FILTER_PROFILES = {
+    'studio': STUDIO_DRY_FILTER,
+    'mobile': (
+        "highpass=f=70, "
+        "equalizer=f=220:width_type=h:width=180:g=2, "
+        "acompressor=threshold=-20dB:ratio=3.5:attack=150:release=700, "
+        "loudnorm=I=-16:TP=-1.5:LRA=9"
+    ),
+    'youtube': (
+        "highpass=f=60, "
+        "equalizer=f=180:width_type=h:width=220:g=2, "
+        "equalizer=f=6500:width_type=h:width=1200:g=1.5, "
+        "acompressor=threshold=-19dB:ratio=3.8:attack=120:release=800, "
+        "loudnorm=I=-14:TP=-1.0:LRA=8"
+    ),
+    'tiktok': (
+        "highpass=f=70, "
+        "equalizer=f=240:width_type=h:width=200:g=2.5, "
+        "equalizer=f=7500:width_type=h:width=1200:g=2, "
+        "acompressor=threshold=-20dB:ratio=4:attack=100:release=600, "
+        "loudnorm=I=-15:TP=-1.0:LRA=8"
+    ),
+}
+
+def _as_bool(value, default=False):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        return value.strip().lower() in ('1', 'true', 'yes', 'on')
+    return default
+
+def build_audio_filter_chain(profile='studio', use_denoise=False, use_deess=False):
+    base = AUDIO_FILTER_PROFILES.get(str(profile or 'studio').lower(), STUDIO_DRY_FILTER)
+    filters = [base]
+    if _as_bool(use_denoise):
+        filters.insert(0, "afftdn=nf=-25")
+    if _as_bool(use_deess):
+        filters.append("deesser=i=0.45:m=0.5:f=0.5:s=o")
+    return ", ".join(filters)
+
 
 def app_dir():
     if getattr(sys, "frozen", False): return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.abspath(__file__))
 
 EXEC_DIR = app_dir()
-BUNDLE_DIR = EXEC_DIR 
+# When frozen by PyInstaller onefile, bundled read-only assets live in _MEIPASS
+BUNDLE_DIR = getattr(sys, "_MEIPASS", EXEC_DIR)
+
+# User-writable data dir: env override -> platform default -> EXEC_DIR (dev)
+def _default_user_data_dir():
+    if os.name == "nt":
+        base = os.environ.get("APPDATA") or os.path.expanduser("~")
+        return os.path.join(base, "QuranReels")
+    if sys.platform == "darwin":
+        return os.path.expanduser("~/Library/Application Support/QuranReels")
+    return os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), "QuranReels")
+
+_env_data = os.environ.get("QURAN_REELS_DATA_DIR", "").strip()
+if _env_data:
+    USER_DATA_DIR = _env_data
+elif getattr(sys, "frozen", False):
+    USER_DATA_DIR = _default_user_data_dir()
+else:
+    USER_DATA_DIR = EXEC_DIR  # dev mode: keep legacy behavior
+os.makedirs(USER_DATA_DIR, exist_ok=True)
 
 PEXELS_KEYS_STR = os.environ.get("PEXELS_API_KEYS", "")
 PEXELS_API_KEYS = [k.strip() for k in PEXELS_KEYS_STR.split(",") if k.strip()]
 
-LOCAL_BGS_DIR = os.path.join(BUNDLE_DIR, "local_bgs")
+LOCAL_BGS_DIR = os.path.join(USER_DATA_DIR, "local_bgs")
 os.makedirs(LOCAL_BGS_DIR, exist_ok=True)
 
 FFMPEG_EXE = "ffmpeg"
+FFMPEG_EXE = FFMPEG_PATH
 os.environ["FFMPEG_BINARY"] = FFMPEG_EXE
 
+default_imagemagick = "magick" if os.name == "nt" else "convert"
 try:
-    change_settings({"IMAGEMAGICK_BINARY": os.getenv("IMAGEMAGICK_BINARY", "convert")})
+    change_settings({"IMAGEMAGICK_BINARY": os.getenv("IMAGEMAGICK_BINARY", default_imagemagick)})
 except:
     pass
 
 AudioSegment.converter = FFMPEG_EXE
 AudioSegment.ffmpeg = FFMPEG_EXE
 
-# Asset Paths
-FONT_DIR = os.path.join(EXEC_DIR, "fonts")
+# Asset Paths (fonts and UI.html are read-only; live in BUNDLE_DIR when frozen)
+FONT_DIR = os.path.join(BUNDLE_DIR, "fonts")
 FONT_PATH_ARABIC = os.path.join(FONT_DIR, "Arabic.otf")
 FONT_PATH_ENGLISH = os.path.join(FONT_DIR, "English.otf")
-VISION_DIR = os.path.join(BUNDLE_DIR, "vision")
+VISION_DIR = os.path.join(USER_DATA_DIR, "vision")
 UI_PATH = os.path.join(BUNDLE_DIR, "UI.html")
 
 # ✅ الخطوط العربية المتاحة
@@ -155,9 +264,9 @@ def get_font_path_en(font_name):
     """الحصول على مسار الخط الإنجليزي بناءً على الاسم"""
     return AVAILABLE_FONTS_EN.get(font_name, FONT_PATH_ENGLISH)
 
-# Master Temp Directory
-BASE_TEMP_DIR = os.path.join(EXEC_DIR, "temp_workspaces")
-OUTPUTS_DIR = os.path.join(EXEC_DIR, "outputs")
+# Master Temp Directory (user-writable when bundled)
+BASE_TEMP_DIR = os.path.join(USER_DATA_DIR, "temp_workspaces")
+OUTPUTS_DIR = os.path.join(USER_DATA_DIR, "outputs")
 os.makedirs(BASE_TEMP_DIR, exist_ok=True)
 os.makedirs(OUTPUTS_DIR, exist_ok=True)
 os.makedirs(VISION_DIR, exist_ok=True)
@@ -278,7 +387,7 @@ def tr_api(key, lang='ar', **kwargs):
 # ==========================================
 # 🗄️ Database Setup (SQLite for Persistence)
 # ==========================================
-DB_PATH = os.path.join(EXEC_DIR, "quran_jobs.db")
+DB_PATH = os.path.join(USER_DATA_DIR, "quran_jobs.db")
 
 def get_db():
     """Get database connection for current request"""
@@ -641,6 +750,22 @@ def get_surah_list(lang='ar'):
 # ✅ مواضيع آمنة للخلفيات العشوائية (للـ Batch Export)
 SAFE_TOPICS = ['sky clouds timelapse', 'galaxy stars space', 'ocean waves slow motion', 'forest trees drone', 'waterfall nature', 'mountains fog', 'mosque architecture', 'islamic pattern', 'nature landscape', 'sunrise golden hour', 'night stars milky way', 'desert sand dunes', 'autumn forest', 'spring flowers', 'rain drops', 'snow falling', 'northern lights aurora', 'lake reflection', 'river flowing', 'birds flying sunset']
 
+SCENE_PACK_QUERIES = {
+    'nature_calm': ['nature landscape', 'forest trees drone', 'waterfall nature', 'lake reflection'],
+    'night_sky': ['night stars milky way', 'galaxy stars space', 'northern lights aurora'],
+    'ocean': ['ocean waves slow motion', 'sea horizon sunset', 'river flowing'],
+    'desert': ['desert sand dunes', 'golden hour dunes', 'mountains fog'],
+}
+
+def choose_background_query(custom_query, scene_pack):
+    if custom_query and str(custom_query).strip():
+        return custom_query
+    pack_key = str(scene_pack or '').strip().lower()
+    pack_queries = SCENE_PACK_QUERIES.get(pack_key)
+    if pack_queries:
+        return random.choice(pack_queries)
+    return random.choice(SAFE_TOPICS)
+
 # ==========================================
 # ✅ Input Validation - التحقق من صحة المدخلات
 # ==========================================
@@ -678,47 +803,54 @@ def validate_ayah_range(surah, start_ayah, end_ayah, lang='ar'):
     
     return True
 
-# 🚀 Reciters Config
+# 🚀 Reciters Config — verified against https://mp3quran.net/api/v3/reciters (Hafs - Murattal)
 NEW_RECITERS_CONFIG = {
-    'احمد النفيس': (259, "https://server16.mp3quran.net/nufais/Rewayat-Hafs-A-n-Assem/"),
-    'وديع اليماني': (219, "https://server6.mp3quran.net/wdee3/"),
+    # ── المشاهير ──
+    'مشاري العفاسي': (123, "https://server8.mp3quran.net/afs/"),
+    'عبدالرحمن السديس': (54, "https://server11.mp3quran.net/sds/"),
+    'سعود الشريم': (31, "https://server7.mp3quran.net/shur/"),
+    'ماهر المعيقلي': (102, "https://server12.mp3quran.net/maher/"),
+    'ياسر الدوسري': (92, "https://server11.mp3quran.net/yasser/"),
+    'ناصر القطامي': (86, "https://server6.mp3quran.net/qtm/"),
+    'عبدالباسط عبدالصمد': (51, "https://server7.mp3quran.net/basit/"),
+    'محمد صديق المنشاوي': (112, "https://server10.mp3quran.net/minsh/"),
+    'محمود خليل الحصري': (118, "https://server13.mp3quran.net/husr/"),
+    'سعد الغامدي': (30, "https://server7.mp3quran.net/s_gmd/"),
+    'هاني الرفاعي': (89, "https://server8.mp3quran.net/hani/"),
+    'علي الحذيفي': (74, "https://server9.mp3quran.net/hthfi/"),
+    'إسلام صبحي': (253, "https://server14.mp3quran.net/islam/Rewayat-Hafs-A-n-Assem/"),
+    # ── قراء معروفون ──
+    'أبو بكر الشاطري': (4, "https://server11.mp3quran.net/shatri/"),
+    'أحمد بن علي العجمي': (5, "https://server10.mp3quran.net/ajm/"),
+    'إدريس أبكر': (12, "https://server6.mp3quran.net/abkr/"),
+    'خالد الجليل': (20, "https://server10.mp3quran.net/jleel/"),
+    'خليفة الطنيجي': (24, "https://server12.mp3quran.net/tnjy/"),
+    'صلاح بو خاطر': (46, "https://server8.mp3quran.net/bu_khtr/"),
+    'عبدالله الجهني': (62, "https://server13.mp3quran.net/jhn/"),
+    'عبدالله المطرود': (59, "https://server8.mp3quran.net/mtrod/"),
+    'علي جابر': (76, "https://server11.mp3quran.net/a_jbr/"),
+    'فارس عباد': (81, "https://server8.mp3quran.net/frs_a/"),
+    'محمد أيوب': (109, "https://server8.mp3quran.net/ayyub/"),
+    'محمد جبريل': (111, "https://server8.mp3quran.net/jbrl/"),
+    'محمود علي البنا': (121, "https://server8.mp3quran.net/bna/"),
+    'توفيق الصايغ': (17, "https://server6.mp3quran.net/twfeeq/"),
+    'سامي الدوسري': (35, "https://server8.mp3quran.net/sami_dosr/"),
+    'أحمد الحذيفي': (205, "https://server8.mp3quran.net/ahmad_huth/"),
+    # ── قراء النخبة الجدد ──
+    'أحمد النفيس': (259, "https://server16.mp3quran.net/nufais/Rewayat-Hafs-A-n-Assem/"),
+    'وديع اليمني': (219, "https://server6.mp3quran.net/wdee3/"),
     'بندر بليلة': (217, "https://server6.mp3quran.net/balilah/"),
-    'ادريس أبكر': (12, "https://server6.mp3quran.net/abkr/"),
     'منصور السالمي': (245, "https://server14.mp3quran.net/mansor/"),
     'رعد الكردي': (221, "https://server6.mp3quran.net/kurdi/"),
-    'أحمد العجمي': (5, "https://server10.mp3quran.net/ajm/"),
-    'محمود خليل الحصري': (118, "https://server13.mp3quran.net/husr/Rewayat-Qalon-A-n-Nafi/"),
-    # ✅ قراء جداد من القدام (ليهم توقيتات في mp3quran)
-    'عبدالرحمن السديس': (54, "https://server11.mp3quran.net/sds/"),
-    'مشاري العفاسي': (123, "https://server8.mp3quran.net/afs/"),
-    'سعود الشريم': (31, "https://server7.mp3quran.net/shur/"),
-    'أبو بكر الشاطري': (4, "https://server11.mp3quran.net/shatri/"),
 }
 
-OLD_RECITERS_MAP = {
-    'ياسر الدوسري':'Yasser_Ad-Dussary_128kbps', 
-    'ماهر المعيقلي': 'Maher_AlMuaiqly_64kbps', 
-    'ناصر القطامي': 'Nasser_Alqatami_128kbps',
-    'محمد صديق المنشاوي': 'Minshawy_Murattal_128kbps',
-}
+# Legacy alt-source map kept for backward compatibility with cached jobs.
+# Names duplicated in NEW_RECITERS_CONFIG above are intentionally NOT listed here
+# so the verified mp3quran URL is used.
+OLD_RECITERS_MAP = {}
 
-# 🎯 MP3Quran IDs للقراء الجدد (للتوقيتات الدقيقة)
-MP3QURAN_IDS = {
-    # القراء الجداد
-    'احمد النفيس': 259,
-    'وديع اليماني': 219,
-    'بندر بليلة': 217,
-    'ادريس أبكر': 12,
-    'منصور السالمي': 245,
-    'رعد الكردي': 221,
-    'أحمد العجمي': 5,
-    'محمود خليل الحصري': 118,
-    # قراء منقولين من القدام (ليهم توقيتات)
-    'عبدالرحمن السديس': 54,
-    'مشاري العفاسي': 123,
-    'سعود الشريم': 31,
-    'أبو بكر الشاطري': 4,
-}
+# 🎯 MP3Quran IDs للقراء (للتوقيتات الدقيقة) — auto-derived from NEW_RECITERS_CONFIG
+MP3QURAN_IDS = {name: rid for name, (rid, _url) in NEW_RECITERS_CONFIG.items()}
 
 # 📁 مجلد تخزين التوقيتات
 TIMINGS_CACHE_DIR = os.path.join(EXEC_DIR, "cache_timings")
@@ -844,7 +976,7 @@ CORS(app, resources={r"/api/*": {"origins": "*"}})
 limiter = Limiter(
     app=app,
     key_func=get_remote_address,
-    default_limits=["200 per day", "50 per hour"],
+    default_limits=["5000 per day", "1000 per hour"],
     storage_uri="memory://",  # تخزين في الذاكرة
 )
 
@@ -877,7 +1009,9 @@ def create_job(config=None, session_id=None):
             'should_stop': False, 
             'created_at': time.time(), 
             'workspace': job_dir,
-            'session_id': session_id
+            'session_id': session_id,
+            'background_source_used': 'unknown',
+            'background_fetch_error': None
         }
     
     # Store in SQLite for persistence
@@ -900,6 +1034,12 @@ def update_job_status(job_id, percent, status, eta=None):
             db_data['eta'] = eta
         db_update_job(job_id, **db_data)
 
+def update_job_metadata(job_id, **kwargs):
+    """Update lightweight in-memory metadata fields for diagnostics."""
+    with JOBS_LOCK:
+        if job_id in JOBS:
+            JOBS[job_id].update(kwargs)
+
 def get_job(job_id):
     """Get job - try RAM first, then SQLite"""
     with JOBS_LOCK:
@@ -921,7 +1061,9 @@ def get_job(job_id):
             'error': db_job['error'],
             'should_stop': bool(db_job['should_stop']),
             'created_at': db_job['created_at'],
-            'workspace': db_job['workspace']
+            'workspace': db_job['workspace'],
+            'background_source_used': db_job.get('background_source_used', 'unknown') if isinstance(db_job, dict) else 'unknown',
+            'background_fetch_error': db_job.get('background_fetch_error') if isinstance(db_job, dict) else None
         }
     return None
 
@@ -1085,8 +1227,163 @@ def create_vignette_mask(w, h):
     mask_img[:, :, 3] = (mask * 255).astype(np.uint8)
     return ImageClip(mask_img, ismask=False)
 
+def apply_background_effects(clip, effect_type='enhance', strength=1.0):
+    """تحسين الخلفيات بتأثيرات بصرية / Enhance backgrounds with visual effects"""
+    try:
+        def process_frame(frame):
+            frame = frame.astype(np.float32)
+            
+            if effect_type == 'enhance':
+                # ✅ تحسين التباين والسطوع مع الحفاظ على الألوان الطبيعية
+                frame = frame / 255.0
+                # زيادة السطوع قليلاً للوضوح
+                frame = np.clip(frame * (1.05 * strength), 0, 1)
+                # زيادة التباين بدقة
+                mean = frame.mean()
+                frame = mean + (frame - mean) * (1.2 * strength)
+                frame = np.clip(frame, 0, 1) * 255
+                
+            elif effect_type == 'blur_soft':
+                # ✅ تمويه ناعم لتحسين وضوح النصوص (blur background for text readability)
+                from scipy.ndimage import gaussian_filter
+                blur_amount = int(3 * strength)
+                for c in range(min(3, frame.shape[2])):  # فقط RGB (تجاهل Alpha)
+                    frame[:,:,c] = gaussian_filter(frame[:,:,c] / 255.0, blur_amount) * 255
+                    
+            elif effect_type == 'darken':
+                # ✅ تغميق الخلفية مع الحفاظ على التفاصيل
+                frame = frame / 255.0
+                frame = frame * (0.85 * strength + 0.15)  # تقليل السطوع
+                frame = np.clip(frame, 0, 1) * 255
+                
+            elif effect_type == 'saturate':
+                # ✅ زيادة تشبع الألوان للحصول على ألوان غنية
+                from PIL import Image, ImageEnhance
+                img = Image.fromarray(frame.astype(np.uint8))
+                enhancer = ImageEnhance.Color(img)
+                img = enhancer.enhance(1.3 * strength)
+                frame = np.array(img).astype(np.float32)
+                
+            return frame.astype(np.uint8)
+        
+        # تطبيق التأثير على كل إطار
+        return clip.fl_image(process_frame)
+    except:
+        return clip  # إذا حدث خطأ، أرجع الـ clip الأصلي
+
+def fetch_from_multiple_sources(query, count, aspect_ratio='9:16', job_id=None):
+    """جلب الخلفيات من مصادر متعددة / Fetch backgrounds from multiple sources"""
+    all_videos = []
+    
+    # المصدر الأول: Pexels (الأساسي)
+    try:
+        pexels_videos = fetch_video_pool("", query, count=count, job_id=job_id, aspect_ratio=aspect_ratio)
+        all_videos.extend(pexels_videos)
+    except:
+        pass
+    
+    # المصدر الثاني: محاولة Pixabay إذا لم نجد ما يكفي
+    try:
+        if len(all_videos) < count:
+            pixabay_key = os.environ.get("PIXABAY_API_KEY", "")
+            if pixabay_key:
+                url = f"https://pixabay.com/api/videos/?key={pixabay_key}&q={query}&per_page={count}"
+                r = requests.get(url, timeout=10)
+                if r.status_code == 200:
+                    for vid in r.json().get('hits', [])[:count - len(all_videos)]:
+                        check_stop(job_id)
+                        # اختيار أفضل جودة
+                        best_file = max(vid.get('videos', {}).values(), 
+                                      key=lambda x: x.get('width', 0) * x.get('height', 0))
+                        path = os.path.join(VISION_DIR, f"pixabay_bg_{vid['id']}.mp4")
+                        if not os.path.exists(path):
+                            smart_download(best_file['url'], path, job_id)
+                        all_videos.append(path)
+    except:
+        pass
+    
+    return all_videos if all_videos else []
+
+def create_gradient_overlay(w, h, color_top=(0, 0, 0), color_bottom=(0, 0, 0), opacity=0.3):
+    """إنشاء تدرج لوني / Create gradient overlay for better text contrast"""
+    img = Image.new('RGB', (w, h))
+    pixels = img.load()
+    
+    for y in range(h):
+        ratio = y / h
+        r = int(color_top[0] * (1 - ratio) + color_bottom[0] * ratio)
+        g = int(color_top[1] * (1 - ratio) + color_bottom[1] * ratio)
+        b = int(color_top[2] * (1 - ratio) + color_bottom[2] * ratio)
+        
+        for x in range(w):
+            pixels[x, y] = (r, g, b)
+    
+    return ImageClip(np.array(img)).set_opacity(opacity)
+
 # ==========================================
-# 🎨 Visual Elements
+# � Procedural Animated Background (no API needed)
+# ==========================================
+# Palettes of (top_color, bottom_color) — used when no video sources are available.
+_PROCEDURAL_PALETTES = [
+    ((20, 30, 80),   (120, 50, 130)),   # twilight purple
+    ((10, 30, 60),   (60, 130, 180)),   # ocean blue
+    ((50, 20, 80),   (180, 80, 120)),   # mystic aurora
+    ((30, 60, 90),   (200, 140, 80)),   # desert dusk
+    ((15, 45, 50),   (90, 180, 160)),   # emerald mist
+    ((40, 20, 60),   (220, 110, 60)),   # sunset glow
+    ((10, 20, 40),   (50, 90, 180)),    # midnight sky
+    ((25, 50, 30),   (130, 180, 90)),   # forest dawn
+]
+
+def _radial_gradient_frame(w, h, top_rgb, bot_rgb, cx_ratio=0.5, cy_ratio=0.3, radius_ratio=1.2):
+    """Generate a single radial-vertical gradient frame as a numpy array (uint8 RGB)."""
+    # Vertical gradient base
+    ys = np.linspace(0, 1, h, dtype=np.float32).reshape(h, 1)
+    base = (np.array(top_rgb, dtype=np.float32) * (1 - ys) +
+            np.array(bot_rgb, dtype=np.float32) * ys)            # h x 3
+    img = np.tile(base.reshape(h, 1, 3), (1, w, 1))              # h x w x 3
+    # Radial highlight (subtle glow)
+    cx, cy = int(w * cx_ratio), int(h * cy_ratio)
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    dist = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2)
+    max_r = max(w, h) * radius_ratio
+    glow = np.clip(1.0 - dist / max_r, 0.0, 1.0) ** 2          # h x w
+    highlight = np.array([255, 230, 200], dtype=np.float32) * 0.18
+    img += glow[..., None] * highlight
+    return np.clip(img, 0, 255).astype(np.uint8)
+
+def create_procedural_bg(w, h, duration, seed=None):
+    """Beautiful animated gradient background — guaranteed fallback when no videos found.
+    Slowly drifts the highlight position and blends two palettes for a calm cinematic feel.
+    """
+    rng = random.Random(seed)
+    pal_a = rng.choice(_PROCEDURAL_PALETTES)
+    pal_b = rng.choice(_PROCEDURAL_PALETTES)
+    # Pre-render 6 keyframes and let MoviePy interpolate via a make_frame closure.
+    n_keys = 6
+    keys = []
+    for i in range(n_keys):
+        t = i / (n_keys - 1)
+        top = tuple(int(pal_a[0][c] * (1 - t) + pal_b[0][c] * t) for c in range(3))
+        bot = tuple(int(pal_a[1][c] * (1 - t) + pal_b[1][c] * t) for c in range(3))
+        cx = 0.3 + 0.4 * t
+        cy = 0.25 + 0.15 * math.sin(t * math.pi)
+        keys.append(_radial_gradient_frame(w, h, top, bot, cx, cy))
+
+    def make_frame(t):
+        # Map t in [0, duration] to a position in [0, n_keys - 1]
+        pos = (t / max(duration, 0.01)) * (n_keys - 1)
+        i0 = int(pos)
+        i1 = min(i0 + 1, n_keys - 1)
+        a = pos - i0
+        return (keys[i0].astype(np.float32) * (1 - a) +
+                keys[i1].astype(np.float32) * a).astype(np.uint8)
+
+    from moviepy.editor import VideoClip
+    return VideoClip(make_frame, duration=duration)
+
+# ==========================================
+# �🎨 Visual Elements
 # ==========================================
 
 def create_text_clip(text, duration, target_w, scale_factor=1.0, glow=False, style=None, font_path=None):
@@ -1275,6 +1572,20 @@ def fetch_video_pool(user_key, custom_query, count=1, job_id=None, aspect_ratio=
     else:
         q = random.choice(safe_topics)
 
+    def select_video_file(video_files):
+        if aspect_ratio == '16:9':
+            return next((vf for vf in video_files if vf['width'] <= 1920 and vf['width'] >= vf['height']), None)
+        if aspect_ratio == '1:1':
+            return next((vf for vf in video_files if vf['width'] <= 1080), None)
+        return next((vf for vf in video_files if vf['width'] <= 1080 and vf['height'] > vf['width']), None)
+
+    def is_photo_safe(photo):
+        text = f"{photo.get('url', '')} {photo.get('alt', '')}".lower()
+        for bad_word in BLACKLIST_WORDS:
+            if bad_word in text:
+                return False
+        return True
+
     if active_key:
         try:
             check_stop(job_id)
@@ -1294,15 +1605,7 @@ def fetch_video_pool(user_key, custom_query, count=1, job_id=None, aspect_ratio=
                         continue  # نتخطى الفيديو ده
                     
                     # ✅ اختيار الفيديو المناسب حسب الأبعاد
-                    if aspect_ratio == '16:9':
-                        # أفقي: نختار فيديو عرضه أكبر من ارتفاعه
-                        f = next((vf for vf in vid['video_files'] if vf['width'] <= 1920 and vf['width'] >= vf['height']), None)
-                    elif aspect_ratio == '1:1':
-                        # مربع: أي فيديو
-                        f = next((vf for vf in vid['video_files'] if vf['width'] <= 1080), None)
-                    else:
-                        # عمودي (الافتراضي): نختار فيديو ارتفاعه أكبر من عرضه
-                        f = next((vf for vf in vid['video_files'] if vf['width'] <= 1080 and vf['height'] > vf['width']), None)
+                    f = select_video_file(vid['video_files'])
                     if not f and vid['video_files']: f = vid['video_files'][0]
                     if f:
                         path = os.path.join(VISION_DIR, f"bg_{vid['id']}.mp4")
@@ -1310,18 +1613,134 @@ def fetch_video_pool(user_key, custom_query, count=1, job_id=None, aspect_ratio=
                         pool.append(path)
         except: pass
 
+    # ✅ Fallback to Pexels photos if enough videos were not found.
+    if active_key and len(pool) < count:
+        try:
+            check_stop(job_id)
+            pexels_orientation = 'landscape' if aspect_ratio == '16:9' else ('square' if aspect_ratio == '1:1' else 'portrait')
+            needed = max(1, (count - len(pool)) + 8)
+            url = f"https://api.pexels.com/v1/search?query={q}&per_page={needed}&page={random.randint(1, 10)}&orientation={pexels_orientation}"
+            r = requests.get(url, headers={'Authorization': active_key}, timeout=10)
+            if r.status_code == 200:
+                photos = r.json().get('photos', [])
+                random.shuffle(photos)
+                for photo in photos:
+                    if len(pool) >= count:
+                        break
+                    check_stop(job_id)
+                    if not is_photo_safe(photo):
+                        continue
+                    src = photo.get('src', {})
+                    img_url = src.get('large2x') or src.get('large') or src.get('original') or src.get('medium')
+                    if not img_url:
+                        continue
+                    img_id = photo.get('id', uuid.uuid4().hex)
+                    path = os.path.join(VISION_DIR, f"bg_photo_{img_id}.jpg")
+                    if not os.path.exists(path):
+                        smart_download(img_url, path, job_id)
+                    pool.append(path)
+        except:
+            pass
+
     if not pool:
         try:
-            local_files =[os.path.join(LOCAL_BGS_DIR, f) for f in os.listdir(LOCAL_BGS_DIR) if f.lower().endswith(('.mp4', '.mov', '.mkv'))]
+            local_files =[os.path.join(LOCAL_BGS_DIR, f) for f in os.listdir(LOCAL_BGS_DIR) if f.lower().endswith(('.mp4', '.mov', '.mkv', '.jpg', '.jpeg', '.png', '.webp'))]
             if local_files: pool = random.choices(local_files, k=count)
         except: pass
             
     return pool
 
+def _is_image_asset(path):
+    return str(path).lower().endswith((".jpg", ".jpeg", ".png", ".webp"))
+
+def detect_background_source(path):
+    """Classify the selected background source for diagnostics."""
+    if not path:
+        return 'procedural'
+
+    normalized_path = os.path.normpath(str(path)).lower()
+    vision_norm = os.path.normpath(VISION_DIR).lower()
+    local_norm = os.path.normpath(LOCAL_BGS_DIR).lower()
+    filename = os.path.basename(normalized_path)
+
+    if normalized_path.startswith(local_norm):
+        return 'local'
+    if normalized_path.startswith(vision_norm):
+        if filename.startswith('pixabay_bg_'):
+            return 'pixabay_video'
+        if filename.startswith('bg_photo_'):
+            return 'pexels_photo'
+        if filename.startswith('bg_'):
+            return 'pexels_video'
+        return 'vision_asset'
+    return 'external_asset'
+
+def _prepare_background_clip(path, target_w, target_h, aspect_ratio, bg_effect='enhance', duration=600):
+    """Create a normalized background clip from a video or image asset."""
+    if _is_image_asset(path):
+        bg_clip = ImageClip(path).set_duration(duration)
+        if aspect_ratio == '16:9':
+            bg_clip = bg_clip.resize(width=target_w)
+        else:
+            bg_clip = bg_clip.resize(height=target_h)
+        bg_clip = bg_clip.crop(width=target_w, height=target_h, x_center=bg_clip.w/2, y_center=bg_clip.h/2).set_duration(duration)
+    else:
+        bg_clip = VideoFileClip(path)
+        if aspect_ratio == '16:9':
+            bg_clip = bg_clip.resize(width=target_w)
+        else:
+            bg_clip = bg_clip.resize(height=target_h)
+        video_duration = bg_clip.duration
+        bg_clip = bg_clip.crop(width=target_w, height=target_h, x_center=bg_clip.w/2, y_center=bg_clip.h/2).set_duration(video_duration)
+
+    if bg_effect != 'none':
+        bg_clip = apply_background_effects(bg_clip, effect_type=bg_effect, strength=1.1)
+
+    final_duration = bg_clip.duration
+    gradient = create_gradient_overlay(target_w, target_h,
+                                    color_top=(0, 0, 0),
+                                    color_bottom=(0, 0, 0),
+                                    opacity=0.35)
+    return CompositeVideoClip([bg_clip, gradient.set_duration(final_duration)]).set_duration(final_duration)
+
+def estimate_frame_luminance(frame):
+    if frame is None:
+        return 0.5
+    arr = np.asarray(frame)
+    if arr.ndim < 3:
+        return float(np.clip(arr.mean() / 255.0, 0.0, 1.0))
+    rgb = arr[..., :3].astype(np.float32)
+    lum = (0.299 * rgb[..., 0] + 0.587 * rgb[..., 1] + 0.114 * rgb[..., 2]).mean() / 255.0
+    return float(np.clip(lum, 0.0, 1.0))
+
+def build_contrast_adaptive_style(style, luminance):
+    s = dict(style or {})
+    ar_out = int(float(s.get('arOutW', 4)))
+    en_out = int(float(s.get('enOutW', 3)))
+
+    if luminance >= 0.70:
+        s['arOutW'] = str(min(10, max(ar_out, 6)))
+        s['enOutW'] = str(min(10, max(en_out, 5)))
+        s['arOutC'] = '#000000'
+        s['enOutC'] = '#000000'
+    elif luminance <= 0.35:
+        s['arColor'] = s.get('arColor', '#ffffff') or '#ffffff'
+        s['enColor'] = s.get('enColor', '#FFD700') or '#FFD700'
+        s['arOutW'] = str(min(10, max(ar_out, 4)))
+        s['enOutW'] = str(min(10, max(en_out, 3)))
+        s['arOutC'] = '#000000'
+        s['enOutC'] = '#000000'
+
+    s['arShadow'] = True
+    s['enShadow'] = True
+    s['arShadowC'] = '#000000'
+    s['enShadowC'] = '#000000'
+    return s
+
 # ==========================================
 # ⚡ Optimized Video Builder (Segmented / Chunked)
 # ==========================================
-def build_video_task(job_id, user_pexels_key, reciter_id, surah, start, end, quality, bg_query, fps, dynamic_bg, use_glow, use_vignette, aspect_ratio, style, font_name='Arabic', font_name_en='English'):
+def build_video_task(job_id, user_pexels_key, reciter_id, surah, start, end, quality, bg_query, fps, dynamic_bg, use_glow, use_vignette, aspect_ratio, style, font_name='Arabic', font_name_en='English', bg_effect='enhance', scene_pack='nature_calm', bg_crossfade_sec=0.5, adaptive_text_contrast=False, safe_area_guides=False, safe_area_padding_px=0, audio_profile='studio', audio_denoise=False, audio_deess=False):
     job = get_job(job_id)
     if not job:
         raise Exception(f"Job {job_id} not found - cannot process video")
@@ -1333,6 +1752,11 @@ def build_video_task(job_id, user_pexels_key, reciter_id, surah, start, end, qua
     # ✅ تحديد مسار الخط
     font_path = get_font_path(font_name)
     font_path_en = get_font_path_en(font_name_en)
+    bg_query = choose_background_query(bg_query, scene_pack)
+    text_crossfade = min(0.8, max(0.15, float(bg_crossfade_sec) * 0.7))
+    bg_crossfade_sec = min(1.2, max(0.0, float(bg_crossfade_sec)))
+    safe_pad = int(max(0, safe_area_padding_px if _as_bool(safe_area_guides) else 0))
+    adaptive_text_contrast = _as_bool(adaptive_text_contrast)
 
     # تحديد الأبعاد بناءً على aspect_ratio و quality
     # 9:16 = ريلز/تيك توك (portrait), 1:1 = سوير (square), 16:9 = يوتيوب (landscape)
@@ -1354,28 +1778,41 @@ def build_video_task(job_id, user_pexels_key, reciter_id, surah, start, end, qua
     audio_clips_to_close =[]
     video_clips_to_close = []
     final_segments =[]
+    update_job_metadata(job_id, background_source_used='unknown', background_fetch_error=None)
 
     try:
-        # 1. Fetch Backgrounds
-        vpool = fetch_video_pool(user_pexels_key, bg_query, count=total_ayahs if dynamic_bg else 1, job_id=job_id, aspect_ratio=aspect_ratio)
-        
-        # 2. Prepare Base Background
+        # 1. Fetch Backgrounds (with multiple sources)
+        vpool = []
+        fetch_error = None
+        try:
+            vpool = fetch_from_multiple_sources(bg_query, count=total_ayahs if dynamic_bg else 1, aspect_ratio=aspect_ratio, job_id=job_id)
+        except Exception as ex:
+            fetch_error = f"multi_source: {ex}"
+
         if not vpool:
-            base_bg_clip = ColorClip((target_w, target_h), color=(15, 20, 35))
+            try:
+                vpool = fetch_video_pool(user_pexels_key, bg_query, count=total_ayahs if dynamic_bg else 1, job_id=job_id, aspect_ratio=aspect_ratio)
+            except Exception as ex:
+                fetch_error = f"pexels_direct: {ex}" if not fetch_error else f"{fetch_error} | pexels_direct: {ex}"
+
+        if fetch_error:
+            update_job_metadata(job_id, background_fetch_error=fetch_error)
+        
+        # 2. Prepare Base Background with Enhancements
+        if not vpool:
+            # ✅ لا توجد فيديوهات → خلفية إجرائية متحركة جميلة (بديل بدون مفاتيح API)
+            print(f"[INFO] No video backgrounds available — generating procedural animated background for job {job_id}")
+            update_job_status(job_id, 2, 'Generating animated background (no API key set)...')
+            base_bg_clip = create_procedural_bg(target_w, target_h, duration=600, seed=hash(job_id) & 0xFFFF)
+            video_clips_to_close.append(base_bg_clip)
+            update_job_metadata(job_id, background_source_used='procedural')
         else:
-            bg_clip = VideoFileClip(vpool[0])
-            # ✅ نعمل resize حسب الأبعاد المناسبة
-            if aspect_ratio == '16:9':
-                # أفقي: نعمل resize للعرض
-                bg_clip = bg_clip.resize(width=target_w)
-            else:
-                # عمودي أو مربع: نعمل resize للارتفاع
-                bg_clip = bg_clip.resize(height=target_h)
-            # crop للوسط
-            base_bg_clip = bg_clip.crop(width=target_w, height=target_h, x_center=bg_clip.w/2, y_center=bg_clip.h/2)
+            source_used = detect_background_source(vpool[0])
+            update_job_metadata(job_id, background_source_used=source_used)
+            base_bg_clip = _prepare_background_clip(vpool[0], target_w, target_h, aspect_ratio, bg_effect=bg_effect, duration=600)
             video_clips_to_close.append(base_bg_clip)
 
-        overlays_static =[ColorClip((target_w, target_h), color=(0,0,0)).set_opacity(0.45)]  # ✅ زودناه عشان الخلفيات الفاتحة
+        overlays_static =[ColorClip((target_w, target_h), color=(0,0,0)).set_opacity(0.15)]  # ✅ قللناه من 0.45 لأن التدرج يوفر الحماية
         if use_vignette:
             overlays_static.append(create_vignette_mask(target_w, target_h))
 
@@ -1422,13 +1859,7 @@ def build_video_task(job_id, user_pexels_key, reciter_id, surah, start, end, qua
             
             # فتح فيديو الخلفية مرة واحدة للآية (إذا كان متغيراً) لتقليل استهلاك الرام
             if dynamic_bg and i < len(vpool):
-                ayah_raw = VideoFileClip(vpool[i % len(vpool)])
-                # ✅ resize حسب الأبعاد
-                if aspect_ratio == '16:9':
-                    ayah_raw = ayah_raw.resize(width=target_w)
-                else:
-                    ayah_raw = ayah_raw.resize(height=target_h)
-                ayah_bg_clip = ayah_raw.crop(width=target_w, height=target_h, x_center=ayah_raw.w/2, y_center=ayah_raw.h/2)
+                ayah_bg_clip = _prepare_background_clip(vpool[i % len(vpool)], target_w, target_h, aspect_ratio, bg_effect=bg_effect, duration=600)
                 video_clips_to_close.append(ayah_bg_clip)
                 ayah_bg_time = 0.0
 
@@ -1465,12 +1896,23 @@ def build_video_task(job_id, user_pexels_key, reciter_id, surah, start, end, qua
                     en_chunk = " ".join(en_words[start_en:end_en])
                     display_ar = ar_chunk
 
+                # د. إنشاء Style للقطعة (اختياري: adaptive contrast)
+                chunk_style = dict(style or {})
+                if adaptive_text_contrast:
+                    try:
+                        sample_clip = ayah_bg_clip if (dynamic_bg and i < len(vpool)) else base_bg_clip
+                        sample_time = ayah_bg_time if (dynamic_bg and i < len(vpool)) else current_bg_time
+                        frame_sample = sample_clip.get_frame(sample_time)
+                        chunk_style = build_contrast_adaptive_style(chunk_style, estimate_frame_luminance(frame_sample))
+                    except Exception:
+                        pass
+
                 # د. إنشاء الكليبات البصرية (نستخدم actual_duration بدل chunk_duration)
-                ac = create_text_clip(display_ar, actual_duration, target_w, scale, use_glow, style=style, font_path=font_path)
-                ec = create_english_clip(en_chunk, actual_duration, target_w, scale, use_glow, style=style, font_path=font_path_en)
+                ac = create_text_clip(display_ar, actual_duration, target_w, scale, use_glow, style=chunk_style, font_path=font_path)
+                ec = create_english_clip(en_chunk, actual_duration, target_w, scale, use_glow, style=chunk_style, font_path=font_path_en)
                 
                 # ✅ Crossfade للنص
-                TEXT_FADE = 0.35  # مدة crossfade النص
+                TEXT_FADE = text_crossfade  # مدة crossfade النص
                 ac = ac.crossfadein(TEXT_FADE).crossfadeout(TEXT_FADE)
                 ec = ec.crossfadein(TEXT_FADE).crossfadeout(TEXT_FADE)
                 
@@ -1478,12 +1920,20 @@ def build_video_task(job_id, user_pexels_key, reciter_id, surah, start, end, qua
                 is_last_chunk = (chunk_idx == len(ar_chunks) - 1)
 
                 # هـ. تحديد المواقع
-                ar_size_mult = float(style.get('arSize', '1.0'))
+                ar_size_mult = float(chunk_style.get('arSize', '1.0'))
                 base_y = 0.35 if ar_size_mult <= 1.2 else 0.30
                 ar_y_pos = target_h * base_y
-                
+
+                if safe_pad > 0:
+                    max_ar_y = max(safe_pad, target_h - safe_pad - ac.h - ec.h - int(8 * scale))
+                    ar_y_pos = min(max(ar_y_pos, safe_pad), max_ar_y)
+
+                ec_y_pos = ar_y_pos + ac.h + (2 * scale)
+                if safe_pad > 0:
+                    ec_y_pos = min(ec_y_pos, target_h - safe_pad - ec.h)
+
                 ac = ac.set_position(('center', ar_y_pos))
-                ec = ec.set_position(('center', ar_y_pos + ac.h + (2 * scale)))
+                ec = ec.set_position(('center', ec_y_pos))
 
                 # و. معالجة الخلفية للقطعة (نستخدم actual_duration)
                 # ✅ الخلفية تتغير فقط بين الآيات (مش كل سطر)
@@ -1491,9 +1941,9 @@ def build_video_task(job_id, user_pexels_key, reciter_id, surah, start, end, qua
                     bg_slice = ayah_bg_clip.loop().subclip(ayah_bg_time, ayah_bg_time + actual_duration)
                     # ✅ Fade للخلفية فقط بين الآيات (أول وآخر chunk في الآية كلها)
                     if is_first_chunk: 
-                        bg_slice = bg_slice.fadein(0.5)
+                        bg_slice = bg_slice.fadein(bg_crossfade_sec)
                     if is_last_chunk: 
-                        bg_slice = bg_slice.fadeout(0.5)
+                        bg_slice = bg_slice.fadeout(bg_crossfade_sec)
                     ayah_bg_time += actual_duration
                 else:
                     bg_slice = base_bg_clip.loop().subclip(current_bg_time, current_bg_time + actual_duration)
@@ -1559,9 +2009,10 @@ def build_video_task(job_id, user_pexels_key, reciter_id, surah, start, end, qua
 
         # 6. معالجة الصوت النهائية (Mastering)
         update_job_status(job_id, 98, "Mastering Audio...")
+        audio_filter_chain = build_audio_filter_chain(audio_profile, audio_denoise, audio_deess)
         cmd = (
             f'ffmpeg -y -i "{temp_mix_path}" '
-            f'-af "{STUDIO_DRY_FILTER}" '
+            f'-af "{audio_filter_chain}" '
             f'-c:v copy '
             f'-c:a aac -b:a 128k '
             f'"{final_output_path}"'
@@ -1938,6 +2389,15 @@ def gen():
         'dynamicBg': d.get('dynamicBg', False),
         'useGlow': d.get('useGlow', False),
         'useVignette': d.get('useVignette', False),
+        'backgroundEffect': d.get('backgroundEffect', 'enhance'),
+        'scenePack': d.get('scenePack', 'nature_calm'),
+        'bgCrossfadeSec': d.get('bgCrossfadeSec', 0.5),
+        'adaptiveTextContrast': d.get('adaptiveTextContrast', False),
+        'safeAreaGuides': d.get('safeAreaGuides', False),
+        'safeAreaPaddingPx': d.get('safeAreaPaddingPx', 0),
+        'audioProfile': d.get('audioProfile', 'studio'),
+        'audioDenoise': d.get('audioDenoise', False),
+        'audioDeEss': d.get('audioDeEss', False),
         'font': d.get('font', 'Arabic'),
         'fontEn': d.get('fontEn', 'English'),
         'pexelsKey': d.get('pexelsKey', ''),
@@ -1970,7 +2430,16 @@ def gen():
             d.get('aspectRatio','9:16'),
             style_settings,
             d.get('font', 'Arabic'),
-            d.get('fontEn', 'English')
+            d.get('fontEn', 'English'),
+            d.get('backgroundEffect', 'enhance'),
+            d.get('scenePack', 'nature_calm'),
+            d.get('bgCrossfadeSec', 0.5),
+            d.get('adaptiveTextContrast', False),
+            d.get('safeAreaGuides', False),
+            d.get('safeAreaPaddingPx', 0),
+            d.get('audioProfile', 'studio'),
+            d.get('audioDenoise', False),
+            d.get('audioDeEss', False)
         ),
         daemon=True
     ).start()
@@ -1978,6 +2447,7 @@ def gen():
     return jsonify({'ok': True, 'jobId': job_id})
 
 @app.route('/api/progress')
+@limiter.exempt
 def prog(): 
     job = get_job(request.args.get('jobId'))
     if job:
@@ -2205,7 +2675,13 @@ def get_job_by_id(job_id):
 @app.route('/api/config')
 def conf():
     lang = get_request_lang()
-    return jsonify({'surahs': get_surah_list(lang), 'verseCounts': VERSE_COUNTS, 'reciters': RECITERS_MAP})
+    return jsonify({
+        'surahs': get_surah_list(lang),
+        'verseCounts': VERSE_COUNTS,
+        'reciters': RECITERS_MAP,
+        'has_pexels_key': bool(PEXELS_API_KEYS),
+        'has_pixabay_key': bool(os.environ.get('PIXABAY_API_KEY', '').strip()),
+    })
 
 # ==========================================
 # 🔧 Utility Functions
@@ -2289,7 +2765,18 @@ def recover_pending_jobs():
                         cfg.get('useGlow', False),
                         cfg.get('useVignette', False),
                         cfg.get('aspectRatio', '9:16'),
-                        style
+                        style,
+                        cfg.get('font', 'Arabic'),
+                        cfg.get('fontEn', 'English'),
+                        cfg.get('backgroundEffect', 'enhance'),
+                        cfg.get('scenePack', 'nature_calm'),
+                        cfg.get('bgCrossfadeSec', 0.5),
+                        cfg.get('adaptiveTextContrast', False),
+                        cfg.get('safeAreaGuides', False),
+                        cfg.get('safeAreaPaddingPx', 0),
+                        cfg.get('audioProfile', 'studio'),
+                        cfg.get('audioDenoise', False),
+                        cfg.get('audioDeEss', False)
                     ),
                     daemon=True
                 ).start()
@@ -2367,15 +2854,15 @@ def process_single_batch(batch_id):
                 
                 config = json.loads(job['config_json'])
                 
-                # ✅ توليد Query عشوائي لكل فيديو
-                random_bg_query = random.choice(SAFE_TOPICS)
+                # ✅ اختيار Query حسب الإعدادات (custom query -> scene pack -> safe fallback)
+                selected_bg_query = choose_background_query(config.get('bgQuery', ''), config.get('scenePack', 'nature_calm'))
                 
                 # تحديث حالة الـ item مع وقت البداية
                 video_start_time = time.time()
                 db_update_batch_item(batch_id, job_id, status='processing', video_started_at=video_start_time)
                 db_update_batch(batch_id, current_job_id=job_id, current_job_index=item['position'])
                 
-                print(f"  🎬 [{item['position'] + 1}/{len(items)}] Surah {item['surah']}, Ayah {item['start_ayah']} | Query: {random_bg_query}")
+                print(f"  🎬 [{item['position'] + 1}/{len(items)}] Surah {item['surah']}, Ayah {item['start_ayah']} | Query: {selected_bg_query}")
                 
                 # معالجة الفيديو
                 style_settings = config.get('style', {})
@@ -2392,7 +2879,7 @@ def process_single_batch(batch_id):
                     item['start_ayah'],
                     item['end_ayah'],
                     config.get('quality', '720'),
-                    random_bg_query,
+                    selected_bg_query,
                     int(config.get('fps', 20)),
                     config.get('dynamicBg', False),
                     config.get('useGlow', False),
@@ -2400,7 +2887,16 @@ def process_single_batch(batch_id):
                     config.get('aspectRatio', '9:16'),
                     style_settings,
                     config.get('font', 'Arabic'),
-                    config.get('fontEn', 'English')
+                    config.get('fontEn', 'English'),
+                    config.get('backgroundEffect', 'enhance'),
+                    config.get('scenePack', 'nature_calm'),
+                    config.get('bgCrossfadeSec', 0.5),
+                    config.get('adaptiveTextContrast', False),
+                    config.get('safeAreaGuides', False),
+                    config.get('safeAreaPaddingPx', 0),
+                    config.get('audioProfile', 'studio'),
+                    config.get('audioDenoise', False),
+                    config.get('audioDeEss', False)
                 )
                 
                 # حساب وقت الفيديو
@@ -2546,6 +3042,15 @@ def create_batch():
         'dynamicBg': d.get('dynamicBg', True),
         'useGlow': d.get('useGlow', True),
         'useVignette': d.get('useVignette', True),
+        'backgroundEffect': d.get('backgroundEffect', 'enhance'),
+        'scenePack': d.get('scenePack', 'nature_calm'),
+        'bgCrossfadeSec': d.get('bgCrossfadeSec', 0.5),
+        'adaptiveTextContrast': d.get('adaptiveTextContrast', False),
+        'safeAreaGuides': d.get('safeAreaGuides', False),
+        'safeAreaPaddingPx': d.get('safeAreaPaddingPx', 0),
+        'audioProfile': d.get('audioProfile', 'studio'),
+        'audioDenoise': d.get('audioDenoise', False),
+        'audioDeEss': d.get('audioDeEss', False),
         'aspectRatio': d.get('aspectRatio', '9:16'),
         'font': d.get('font', 'Arabic'),
         'fontEn': d.get('fontEn', 'English'),
@@ -2577,6 +3082,8 @@ def create_batch():
             job_config['useGlow'] = item['useGlow']
         if item.get('useVignette') is not None:
             job_config['useVignette'] = item['useVignette']
+        if item.get('backgroundEffect'):
+            job_config['backgroundEffect'] = item['backgroundEffect']
         if item.get('aspectRatio'):
             job_config['aspectRatio'] = item['aspectRatio']
         if item.get('font'):
@@ -2589,6 +3096,22 @@ def create_batch():
             job_config['quality'] = item['quality']
         if item.get('bgQuery'):
             job_config['bgQuery'] = item['bgQuery']
+        if item.get('scenePack'):
+            job_config['scenePack'] = item['scenePack']
+        if item.get('bgCrossfadeSec') is not None:
+            job_config['bgCrossfadeSec'] = item['bgCrossfadeSec']
+        if item.get('adaptiveTextContrast') is not None:
+            job_config['adaptiveTextContrast'] = item['adaptiveTextContrast']
+        if item.get('safeAreaGuides') is not None:
+            job_config['safeAreaGuides'] = item['safeAreaGuides']
+        if item.get('safeAreaPaddingPx') is not None:
+            job_config['safeAreaPaddingPx'] = item['safeAreaPaddingPx']
+        if item.get('audioProfile'):
+            job_config['audioProfile'] = item['audioProfile']
+        if item.get('audioDenoise') is not None:
+            job_config['audioDenoise'] = item['audioDenoise']
+        if item.get('audioDeEss') is not None:
+            job_config['audioDeEss'] = item['audioDeEss']
 
         job_id = create_job(job_config, session_id)
         db_add_batch_item(batch_id, job_id, i, item['surah'], item['startAyah'], item['endAyah'])
@@ -2609,6 +3132,7 @@ def create_batch():
     })
 
 @app.route('/api/batch/status')
+@limiter.exempt
 def get_batch_status():
     """الحصول على حالة الباتش"""
     batch_id = request.args.get('batchId')
@@ -3331,6 +3855,7 @@ print("🚀 Quran Reels Generator ready!")
 
 if __name__ == "__main__":
     print("🚀 Starting Flask development server...")
-    app.run(host='0.0.0.0', port=7860, threaded=True)
+    port = int(os.environ.get("PORT", "7860"))
+    app.run(host='0.0.0.0', port=port, threaded=True)
 
 

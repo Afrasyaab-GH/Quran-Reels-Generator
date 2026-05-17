@@ -12,6 +12,7 @@ gunicorn
 arabic-reshaper
 python-bidi
 numpy
+scipy
 google-api-python-client
 google-auth-httplib2
 google-auth-oauthlib

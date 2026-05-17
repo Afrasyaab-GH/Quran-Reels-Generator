@@ -1,0 +1,36 @@
+# UTF-8
+#
+# PyInstaller version-info resource for the Windows .exe.
+# Edit the strings below to rebrand; bump the numbers on each release.
+# Used by desktop/QuranReels.spec via the `version=` argument of EXE().
+#
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=(1, 0, 0, 0),
+    prodvers=(1, 0, 0, 0),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo(
+      [
+        StringTable(
+          u'040904B0',
+          [
+            StringStruct(u'CompanyName',      u'Quran Reels'),
+            StringStruct(u'FileDescription',  u'Quran Reels Generator - Desktop'),
+            StringStruct(u'FileVersion',      u'1.0.0.0'),
+            StringStruct(u'InternalName',     u'QuranReels'),
+            StringStruct(u'LegalCopyright',   u'\u00a9 2026 Quran Reels. All rights reserved.'),
+            StringStruct(u'OriginalFilename', u'QuranReels.exe'),
+            StringStruct(u'ProductName',      u'Quran Reels Generator'),
+            StringStruct(u'ProductVersion',   u'1.0.0.0'),
+          ])
+      ]),
+    VarFileInfo([VarStruct(u'Translation', [1033, 1200])])
+  ]
+)

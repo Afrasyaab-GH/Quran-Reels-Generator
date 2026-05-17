@@ -53,6 +53,16 @@ cd D:\Projects\Quran-Reels-Generator
 .\run-local.ps1
 ```
 
+Helpful launcher options:
+
+```powershell
+# custom port
+.\run-local.ps1 -Port 7863
+
+# don't auto-open browser
+.\run-local.ps1 -NoBrowser
+```
+
 ## Run with Docker (Standalone App)
 
 ```powershell

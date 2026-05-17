@@ -1,0 +1,12 @@
+# Extra dependencies needed only for building the desktop bundle.
+# Install with:  pip install -r desktop/requirements-desktop.txt
+
+pyinstaller>=6.3
+pywebview>=5.0
+
+# Windows: Edge WebView2 is used by pywebview (preinstalled on Win10/11)
+# macOS:   pyobjc-core and pyobjc-framework-Cocoa pulled in automatically
+# Linux:   needs system libs:
+#            sudo apt install python3-gi gir1.2-webkit2-4.0 libwebkit2gtk-4.0-dev
+#          or fall back to Qt:
+#            pip install PyQt5 PyQtWebEngine
