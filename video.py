@@ -27,6 +27,16 @@ from config import (
     PEXELS_API_KEYS, FONT_PATH_ARABIC, FONT_PATH_ENGLISH, FONT_PATH_BRACKETS,
     get_font_path, get_font_path_en,
 )
+
+try:
+    import arabic_reshaper
+    from bidi.algorithm import get_display as _bidi_display
+    def _reshape_arabic(s: str) -> str:
+        """Reshape + apply RTL bidi so PIL renders Arabic correctly."""
+        return _bidi_display(arabic_reshaper.reshape(s))
+except ImportError:
+    def _reshape_arabic(s: str) -> str:  # fallback: no-op
+        return s
 from quran_data import (
     VERSE_COUNTS, SAFE_TOPICS, RECITER_ID_TO_NAME,
     choose_background_query, get_surah_name,
@@ -233,10 +243,10 @@ def create_text_clip(text, duration, target_w, scale_factor=1.0, glow=False, sty
     import re
     bracket_match = re.search(r'([﴾﴿]+.*[﴾﴿]+)$', text)
     if bracket_match:
-        main_text = text[:bracket_match.start()].strip()
-        bracket_text = '﴾' + bracket_match.group(1)[1:-1] + '﴿'
+        main_text = _reshape_arabic(text[:bracket_match.start()].strip())
+        bracket_text = _reshape_arabic('﴾' + bracket_match.group(1)[1:-1] + '﴿')
     else:
-        main_text = text
+        main_text = _reshape_arabic(text)
         bracket_text = ""
 
     img = Image.new('RGBA', (target_w, int(180 * scale_factor * size_mult)), (0,0,0,0))
