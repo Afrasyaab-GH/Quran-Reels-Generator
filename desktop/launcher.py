@@ -215,11 +215,36 @@ def _configure_environment() -> None:
                 log.warning("Could not read %s: %s", key_file, e)
 
 
+_FLASK_ERROR: "BaseException | None" = None
+
+
 def _run_flask(port: int) -> None:
-    logging.getLogger("werkzeug").setLevel(logging.ERROR)
-    os.environ.setdefault("FLASK_ENV", "production")
-    import main  # noqa: F401
-    main.app.run(host="127.0.0.1", port=port, threaded=True, use_reloader=False)
+    global _FLASK_ERROR
+    try:
+        logging.getLogger("werkzeug").setLevel(logging.ERROR)
+        os.environ.setdefault("FLASK_ENV", "production")
+        log.info("Importing main module...")
+        import main  # noqa: F401
+        log.info("main imported OK; starting Flask on port %d", port)
+        main.app.run(host="127.0.0.1", port=port, threaded=True, use_reloader=False)
+    except BaseException as e:
+        _FLASK_ERROR = e
+        log.exception("Flask thread crashed")
+        _write_crash(e)
+
+
+def _thread_excepthook(args) -> None:  # type: ignore[no-untyped-def]
+    global _FLASK_ERROR
+    _FLASK_ERROR = args.exc_value
+    log.error(
+        "Unhandled thread exception in %s",
+        getattr(args.thread, "name", "?"),
+        exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
+    )
+    try:
+        _write_crash(args.exc_value)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -228,6 +253,12 @@ def _run_flask(port: int) -> None:
 
 def _main() -> int:
     log.info("==== Launch %s ====", datetime.datetime.now().isoformat())
+    log.info("frozen=%s exe=%s", bool(getattr(sys, "frozen", False)), sys.executable)
+    log.info("USER_DATA=%s", USER_DATA)
+    try:
+        threading.excepthook = _thread_excepthook  # type: ignore[assignment]
+    except Exception:
+        pass
 
     if IS_WINDOWS and not _has_webview2():
         log.warning("WebView2 runtime missing")
@@ -250,6 +281,21 @@ def _main() -> int:
 
     if not _wait_for_server(url, timeout=45.0, splash=splash):
         splash.close()
+        if _FLASK_ERROR is not None:
+            log.error("Server failed to start: %r", _FLASK_ERROR)
+            if IS_WINDOWS:
+                try:
+                    import ctypes
+                    ctypes.windll.user32.MessageBoxW(
+                        0,
+                        f"{APP_NAME} backend failed to start.\n\n"
+                        f"{type(_FLASK_ERROR).__name__}: {_FLASK_ERROR}\n\n"
+                        f"See logs in:\n{LOG_DIR}",
+                        APP_NAME, 0x10,
+                    )
+                except Exception:
+                    pass
+            return 1
         log.error("Server did not respond in 45s; opening in browser")
         webbrowser.open(url)
         try:
