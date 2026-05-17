@@ -268,6 +268,19 @@ def db_get_job(job_id: str) -> Optional[dict]:
     return dict(row) if row else None
 
 
+def db_get_job_for_session(job_id: str, session_id: str) -> Optional[dict]:
+    """Fetch a single job by ID only if it belongs to the provided session."""
+    if not session_id:
+        return None
+    with _cursor() as c:
+        c.execute(
+            "SELECT * FROM jobs WHERE id = ? AND session_id = ?",
+            (job_id, session_id),
+        )
+        row = c.fetchone()
+    return dict(row) if row else None
+
+
 def db_get_all_jobs(status: Optional[str] = None, limit: int = 50, session_id=None) -> list[dict]:
     """Return all jobs, optionally filtered by status and session."""
     with _cursor() as c:
@@ -342,6 +355,19 @@ def db_get_history(limit: int = 20, session_id=None) -> list[dict]:
             )
         rows = c.fetchall()
     return [dict(r) for r in rows]
+
+
+def db_get_history_item_for_session(history_id: int, session_id: str) -> Optional[dict]:
+    """Fetch a single history record only if it belongs to the provided session."""
+    if not session_id:
+        return None
+    with _cursor() as c:
+        c.execute(
+            "SELECT * FROM history WHERE id = ? AND session_id = ?",
+            (history_id, session_id),
+        )
+        row = c.fetchone()
+    return dict(row) if row else None
 
 
 def db_mark_downloaded(job_id: str, session_id=None):
@@ -453,6 +479,24 @@ def db_get_batch(batch_id: str) -> Optional[dict]:
     """Fetch a batch by ID, or None."""
     with _cursor() as c:
         c.execute("SELECT * FROM batch_jobs WHERE id = ?", (batch_id,))
+        row = c.fetchone()
+    return dict(row) if row else None
+
+
+def db_get_batch_for_session(batch_id: str, session_id: str) -> Optional[dict]:
+    """Fetch a batch only if it is associated with the provided session via its jobs."""
+    if not session_id:
+        return None
+    with _cursor() as c:
+        c.execute(
+            """SELECT DISTINCT b.*
+               FROM batch_jobs b
+               JOIN batch_items bi ON bi.batch_id = b.id
+               JOIN jobs j ON j.id = bi.job_id
+               WHERE b.id = ? AND j.session_id = ?
+               LIMIT 1""",
+            (batch_id, session_id),
+        )
         row = c.fetchone()
     return dict(row) if row else None
 

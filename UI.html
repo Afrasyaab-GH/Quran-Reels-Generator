@@ -1863,8 +1863,8 @@
                 bannerTextAfter: 'then paste it here:',
                 bannerSave: 'Save',
                 bannerDismiss: 'Hide'
-            }
-        };
+            },
+            en: {
                 appTitle: 'Quran Reels Generator',
                 appSubtitle: 'Turbo Edition',
                 tabMain: '🏠 Home',
@@ -2004,19 +2004,19 @@
                 publishedConfirm: 'Published successfully!\n\nOpen video link?\n{url}',
                 englishShort: 'EN',
                 arabicShort: 'AR',
-                bgEnhanceLabel: '✨ تحسين الخلفية',
-                bgEnhanceHint: 'تحسين جودة الخلفيات المرئية',
-                bgEnhanceSmart: '🌟 تحسين ذكي (افتراضي)',
-                bgEnhanceDark: '🌙 خلفية مظلمة',
-                bgEnhanceSaturate: '🎨 ألوان غنية',
-                bgEnhanceNone: '⚪ بدون تأثير',
-                bannerTitle: 'لا يوجد مفتاح Pexels',
-                bannerTextBefore: '— الفيديوهات ستستخدم خلفية متدرجة متحركة بدلاً من فيديوهات حقيقية. احصل على مفتاح مجاني من',
-                bannerTextAfter: 'ثم الصقه هنا:',
-                bannerSave: 'حفظ',
-                bannerDismiss: 'إخفاء'
-            },
-            en: {
+                bgEnhanceLabel: '✨ Background Enhancement',
+                bgEnhanceHint: 'Improve background visual quality',
+                bgEnhanceSmart: '🌟 Smart enhance (default)',
+                bgEnhanceDark: '🌙 Dark background',
+                bgEnhanceSaturate: '🎨 Rich colors',
+                bgEnhanceNone: '⚪ No effect',
+                bannerTitle: 'No Pexels API key',
+                bannerTextBefore: '— Videos will use an animated gradient background instead of real videos. Get a free key from',
+                bannerTextAfter: 'then paste it here:',
+                bannerSave: 'Save',
+                bannerDismiss: 'Hide'
+            }
+        };
 
         function t(key, vars = {}) {
             let value = (I18N[CURRENT_LANG] && I18N[CURRENT_LANG][key]) || I18N.ar[key] || key;
@@ -2879,7 +2879,7 @@
             
             pollInterval = setInterval(async () => {
                 try {
-                    const res = await fetch(`/api/progress?jobId=${jobId}`);
+                    const res = await fetch(`/api/progress?jobId=${encodeURIComponent(jobId)}&sessionId=${encodeURIComponent(SESSION_ID)}`);
                     const data = await res.json();
                     
                     updateProgress(data);
@@ -2918,7 +2918,7 @@
             document.getElementById('resultSection').classList.add('active');
             
             const videoUrl = data.download_url || `/api/download?jobId=${currentJobId}`;
-            document.getElementById('videoPlayer').src = videoUrl;
+            document.getElementById('videoPlayer').src = sessionScopedUrl(videoUrl);
             const downloadLinkEl = document.getElementById('downloadLink');
             downloadLinkEl.href = trackedDownloadUrl(videoUrl);
             downloadLinkEl.onclick = () => { refreshMediaViewsLater(); };
@@ -2931,11 +2931,19 @@
             showToast(t('videoCreated'), 'success');
         }
 
+        function sessionScopedUrl(url) {
+            if (!url) return '#';
+            if (url.includes('sessionId=')) return url;
+            const sep = url.includes('?') ? '&' : '?';
+            return `${url}${sep}sessionId=${encodeURIComponent(SESSION_ID)}`;
+        }
+
         function trackedDownloadUrl(url, jobId = null) {
             if (!url) return '#';
-            const sep = url.includes('?') ? '&' : '?';
-            const track = `${sep}track=1&sessionId=${encodeURIComponent(SESSION_ID)}`;
-            return `${url}${track}`;
+            const scopedUrl = sessionScopedUrl(url);
+            if (scopedUrl.includes('track=')) return scopedUrl;
+            const sep = scopedUrl.includes('?') ? '&' : '?';
+            return `${scopedUrl}${sep}track=1`;
         }
 
         function refreshMediaViewsLater() {
@@ -2994,7 +3002,7 @@
         }
 
         async function loadJobConfig(jobId) {
-            const res = await fetch(`/api/job-config?jobId=${encodeURIComponent(jobId)}`);
+            const res = await fetch(`/api/job-config?jobId=${encodeURIComponent(jobId)}&sessionId=${encodeURIComponent(SESSION_ID)}`);
             const data = await res.json();
             if (!data.ok || !data.config) {
                 throw new Error(data.error || 'Config unavailable');
@@ -3097,7 +3105,7 @@
                 await fetch('/api/cancel', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ jobId: currentJobId })
+                    body: JSON.stringify({ jobId: currentJobId, sessionId: SESSION_ID })
                 });
                 
                 resetForm();
@@ -3537,7 +3545,7 @@
             if (!confirm(t('deleteItemConfirm'))) return;
             
             try {
-                const res = await fetch(`/api/history/${id}`, { method: 'DELETE' });
+                const res = await fetch(`/api/history/${id}?sessionId=${encodeURIComponent(SESSION_ID)}`, { method: 'DELETE' });
                 const data = await res.json();
                 
                 if (data.ok) {
@@ -3581,7 +3589,7 @@
                 showProgress();
                 document.getElementById('progressStatus').textContent = t('loadingVideo');
                 
-                const res = await fetch(url);
+                const res = await fetch(sessionScopedUrl(url));
                 const blob = await res.blob();
                 const blobUrl = URL.createObjectURL(blob);
                 
@@ -4189,7 +4197,7 @@
             fetch('/api/batch/cancel', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ batchId: currentBatchId, lang: CURRENT_LANG })
+                body: JSON.stringify({ batchId: currentBatchId, sessionId: SESSION_ID, lang: CURRENT_LANG })
             });
             
             showToast(t('batchCancelled'), 'error');
@@ -4207,7 +4215,7 @@
                 }
                 
                 try {
-                    const res = await fetch(`/api/batch/status?batchId=${batchId}&lang=${encodeURIComponent(CURRENT_LANG)}`);
+                    const res = await fetch(`/api/batch/status?batchId=${encodeURIComponent(batchId)}&sessionId=${encodeURIComponent(SESSION_ID)}&lang=${encodeURIComponent(CURRENT_LANG)}`);
                     const data = await res.json();
                     
                     if (data.ok) {

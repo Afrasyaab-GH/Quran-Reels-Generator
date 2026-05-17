@@ -8,7 +8,7 @@ import traceback
 from flask import request, jsonify
 from config import YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REDIRECT_URI, YOUTUBE_SCOPES
 from i18n import get_request_lang, tr_api
-from database import db_get_job
+from database import db_get_job, db_get_job_for_session
 
 YOUTUBE_TOKENS = {}  # session_id -> credentials
 
@@ -322,7 +322,7 @@ def youtube_upload():
         return jsonify({'ok': False, 'error': tr_api('missing_session_or_job', lang)}), 400
     
     # الحصول على الفيديو
-    job = db_get_job(job_id)
+    job = db_get_job_for_session(job_id, session_id)
     if not job or not job.get('output_path'):
         return jsonify({'ok': False, 'error': tr_api('video_not_found', lang)}), 404
     

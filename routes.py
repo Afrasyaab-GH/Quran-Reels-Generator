@@ -23,6 +23,7 @@ from quran_data import (
 from database import (
     db_get_job, db_update_job, db_get_history, db_add_history,
     db_get_pending_jobs, db_cleanup_old_jobs, db_mark_downloaded, db_get_all_jobs,
+    db_get_job_for_session, db_get_history_item_for_session,
 )
 from jobs import (
     create_job, get_job, update_job_status, JOBS, JOBS_LOCK,
@@ -40,6 +41,19 @@ def _get_build_video_task():
     return _build_video_task_cached
 
 START_TIME = time.time()
+
+
+def _missing_session_response():
+    return jsonify({'ok': False, 'error': 'sessionId is required'}), 400
+
+
+def _owned_job_or_404(job_id, session_id, lang):
+    if not session_id:
+        return None, _missing_session_response()
+    job = db_get_job_for_session(job_id, session_id)
+    if not job:
+        return None, (jsonify({'ok': False, 'error': tr_api('job_not_found', lang)}), 404)
+    return job, None
 
 # ═══════════════════════════════════════
 # ⏱️ API: Estimate Duration (المدة التقريبية الفعلية)
@@ -242,6 +256,8 @@ def gen():
     
     # استخراج session_id من الطلب
     session_id = d.get('sessionId')
+    if not session_id:
+        return _missing_session_response()
     
     # ✅ التحقق من صحة المدخلات
     try:
@@ -326,7 +342,14 @@ def gen():
     return jsonify({'ok': True, 'jobId': job_id})
 
 def prog(): 
-    job = get_job(request.args.get('jobId'))
+    lang = get_request_lang()
+    job_id = request.args.get('jobId')
+    session_id = request.args.get('sessionId')
+    db_job, error_response = _owned_job_or_404(job_id, session_id, lang)
+    if error_response:
+        return error_response
+
+    job = get_job(job_id) or db_job
     if job:
         # Add download URL if complete
         if job.get('status') == 'complete' and job.get('output_path'):
@@ -336,9 +359,10 @@ def prog():
 def download_result():
     lang = get_request_lang()
     job_id = request.args.get('jobId')
-    job = get_job(job_id)
-    if not job:
-        return jsonify({'error': tr_api('job_not_found', lang)}), 404
+    session_id = request.args.get('sessionId')
+    job, error_response = _owned_job_or_404(job_id, session_id, lang)
+    if error_response:
+        return error_response
     
     output_path = job.get('output_path')
     if not output_path or not os.path.exists(output_path):
@@ -360,6 +384,11 @@ def download_result():
 def cancel_process():
     d = request.json
     job_id = d.get('jobId')
+    session_id = d.get('sessionId')
+    lang = get_request_lang(d)
+    _, error_response = _owned_job_or_404(job_id, session_id, lang)
+    if error_response:
+        return error_response
     if job_id:
         with JOBS_LOCK:
             if job_id in JOBS:
@@ -373,6 +402,8 @@ def get_history_route():
     """Get user's video history from database filtered by session"""
     limit = request.args.get('limit', 20, type=int)
     session_id = request.args.get('sessionId')  # استخراج session_id من الطلب
+    if not session_id:
+        return _missing_session_response()
     lang = get_request_lang()
     history = db_get_history(limit, session_id)
     
@@ -452,6 +483,8 @@ def _classify_media_status(job_status, output_path, created_at_iso, download_cou
 def media_hub_route():
     """Media Hub feed with filter support for all/downloaded/undownloaded/failed/expired."""
     session_id = request.args.get('sessionId')
+    if not session_id:
+        return _missing_session_response()
     media_filter = (request.args.get('filter') or 'all').lower()
     limit = request.args.get('limit', 200, type=int)
     limit = max(1, min(limit, 500))
@@ -548,6 +581,9 @@ def mark_downloaded_route():
     data = request.json or {}
     job_id = data.get('jobId')
     session_id = data.get('sessionId')
+    _, error_response = _owned_job_or_404(job_id, session_id, get_request_lang(data))
+    if error_response:
+        return error_response
     if not job_id:
         return jsonify({'ok': False, 'error': 'jobId is required'}), 400
 
@@ -568,12 +604,13 @@ def get_job_config_route():
     """Return original generation config for edit/regenerate UX."""
     lang = get_request_lang()
     job_id = request.args.get('jobId')
+    session_id = request.args.get('sessionId')
     if not job_id:
         return jsonify({'ok': False, 'error': tr_api('invalid_data', lang)}), 400
 
-    db_job = db_get_job(job_id)
-    if not db_job:
-        return jsonify({'ok': False, 'error': tr_api('job_not_found', lang)}), 404
+    db_job, error_response = _owned_job_or_404(job_id, session_id, lang)
+    if error_response:
+        return error_response
 
     config_json = db_job.get('config_json')
     if not config_json:
@@ -588,11 +625,19 @@ def get_job_config_route():
 
 def delete_history_item(history_id):
     """Delete a single history item"""
+    session_id = request.args.get('sessionId')
+    if not session_id:
+        return _missing_session_response()
+
+    history_item = db_get_history_item_for_session(history_id, session_id)
+    if not history_item:
+        return jsonify({'ok': False, 'error': 'History item not found'}), 404
+
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     
     # Get the history item first to clean up files
-    c.execute("SELECT job_id FROM history WHERE id = ?", (history_id,))
+    c.execute("SELECT job_id FROM history WHERE id = ? AND session_id = ?", (history_id, session_id))
     row = c.fetchone()
     
     if row:
@@ -620,49 +665,36 @@ def clear_all_history():
     """Clear history for current session only"""
     data = request.json or {}
     session_id = data.get('sessionId')
+    if not session_id:
+        return _missing_session_response()
     
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     
-    if session_id:
-        # حذف history للجلسة الحالية فقط
-        c.execute("SELECT job_id FROM history WHERE session_id = ?", (session_id,))
-        job_ids = [row[0] for row in c.fetchall()]
-        
-        # حذف ملفات الفيديو والـ workspaces
-        for job_id in job_ids:
-            c.execute("SELECT workspace, output_path FROM jobs WHERE id = ?", (job_id,))
-            job_row = c.fetchone()
-            if job_row:
-                workspace, output_path = job_row
-                if workspace and os.path.exists(workspace):
-                    try:
-                        shutil.rmtree(workspace, ignore_errors=True)
-                    except:
-                        pass
-                if output_path and os.path.exists(output_path):
-                    try:
-                        os.remove(output_path)
-                    except:
-                        pass
-        
-        # حذف من history و jobs للجلسة فقط
-        c.execute("DELETE FROM history WHERE session_id = ?", (session_id,))
-        c.execute("DELETE FROM jobs WHERE session_id = ?", (session_id,))
-    else:
-        # حذف الكل (للتوافق مع الإصدارات القديمة)
-        c.execute("SELECT workspace FROM jobs WHERE workspace IS NOT NULL")
-        workspaces = c.fetchall()
-        
-        for ws in workspaces:
-            if ws[0] and os.path.exists(ws[0]):
+    # حذف history للجلسة الحالية فقط
+    c.execute("SELECT job_id FROM history WHERE session_id = ?", (session_id,))
+    job_ids = [row[0] for row in c.fetchall()]
+    
+    # حذف ملفات الفيديو والـ workspaces
+    for job_id in job_ids:
+        c.execute("SELECT workspace, output_path FROM jobs WHERE id = ? AND session_id = ?", (job_id, session_id))
+        job_row = c.fetchone()
+        if job_row:
+            workspace, output_path = job_row
+            if workspace and os.path.exists(workspace):
                 try:
-                    shutil.rmtree(ws[0], ignore_errors=True)
+                    shutil.rmtree(workspace, ignore_errors=True)
                 except:
                     pass
-        
-        c.execute("DELETE FROM history")
-        c.execute("DELETE FROM jobs")
+            if output_path and os.path.exists(output_path):
+                try:
+                    os.remove(output_path)
+                except:
+                    pass
+    
+    # حذف من history و jobs للجلسة فقط
+    c.execute("DELETE FROM history WHERE session_id = ?", (session_id,))
+    c.execute("DELETE FROM jobs WHERE session_id = ?", (session_id,))
     
     conn.commit()
     conn.close()
@@ -682,21 +714,17 @@ def get_my_jobs():
     """Get all jobs for current session (from SQLite)"""
     status = request.args.get('status')  # pending, processing, complete, error
     session_id = request.args.get('sessionId')
+    if not session_id:
+        return _missing_session_response()
     
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
     
-    if session_id:
-        if status:
-            c.execute("SELECT * FROM jobs WHERE session_id = ? AND status = ? ORDER BY created_at DESC LIMIT 50", (session_id, status))
-        else:
-            c.execute("SELECT * FROM jobs WHERE session_id = ? ORDER BY created_at DESC LIMIT 50", (session_id,))
+    if status:
+        c.execute("SELECT * FROM jobs WHERE session_id = ? AND status = ? ORDER BY created_at DESC LIMIT 50", (session_id, status))
     else:
-        if status:
-            c.execute("SELECT * FROM jobs WHERE status = ? ORDER BY created_at DESC LIMIT 50", (status,))
-        else:
-            c.execute("SELECT * FROM jobs ORDER BY created_at DESC LIMIT 50")
+        c.execute("SELECT * FROM jobs WHERE session_id = ? ORDER BY created_at DESC LIMIT 50", (session_id,))
     
     rows = c.fetchall()
     conn.close()
@@ -727,9 +755,10 @@ def get_my_jobs():
 def get_job_by_id(job_id):
     """Get specific job details"""
     lang = get_request_lang()
-    job = get_job(job_id)
-    if not job:
-        return jsonify({'error': tr_api('job_not_found', lang)}), 404
+    session_id = request.args.get('sessionId')
+    job, error_response = _owned_job_or_404(job_id, session_id, lang)
+    if error_response:
+        return error_response
     return jsonify(job)
 
 def conf():
