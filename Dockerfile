@@ -26,8 +26,8 @@ RUN echo '<policymap> \
 # 4. إنشاء المستخدم
 RUN useradd -m -u 1000 user
 
-# 5. سحب الكود (أول خطوة في التعامل مع الملفات عشان الفولدر يكون فاضي)
-RUN git clone https://github.com/AliMahmoudDev/Quran-Reels-Generator.git .
+# 5. نسخ كود المشروع المحلي (بدل git clone)
+COPY . /app
 
 # 6. تثبيت المكتبات
 RUN pip install --no-cache-dir -r requirements.txt
@@ -49,6 +49,9 @@ USER user
 ENV HOME=/home/user \
     PATH=/home/user/.local/bin:$PATH
 
-# بعد (صحيح)
-ENV FLASK_APP=main.py
-CMD ["flask", "run", "--host=0.0.0.0", "--port=7860"]
+# ✅ إضافة EXPOSE لـ HuggingFace Spaces (مهم جداً!)
+EXPOSE 7860
+
+# ✅ استخدام start.sh (Production WSGI Server مع logging)
+# start.sh بيقرأ PORT من Environment variable (HuggingFace بتخليه)
+CMD ["bash", "start.sh"]

@@ -1,0 +1,17 @@
+temp_workspaces/
+vision/
+local_bgs/
+cache_mp3quran/
+__pycache__/
+*.mp4
+*.mp3
+*.json
+.git/
+upstream-src/
+spaces--Ali112008--Quran-Reels-Generator2/
+run-local.ps1
+docker-compose.standalone.yml
+Dockerfile.bak
+main.py.bak
+outputs/
+quran_jobs.db

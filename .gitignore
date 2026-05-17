@@ -1,0 +1,44 @@
+# Database (stale data shouldn't be in the repo)
+quran_jobs.db
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp & cache directories
+temp_workspaces/
+outputs/
+cache_mp3quran/
+cache_timings/
+my_temp/
+temp_videos/
+temp_audio/
+local_bgs/
+
+# Backup files
+*.bak
+
+# Local dev / upstream reference directories (not needed in HF Space)
+upstream-src/
+spaces--Ali112008--Quran-Reels-Generator2/
