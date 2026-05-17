@@ -10,13 +10,20 @@ pinned: false
 
 # Quran Reels Generator
 
-[![Build Windows Desktop](https://github.com/Afrasyaab-GH/Quran-Reels-Generator/actions/workflows/build-desktop.yml/badge.svg)](https://github.com/Afrasyaab-GH/Quran-Reels-Generator/actions/workflows/build-desktop.yml)
+Live app: https://habib-hf-quran-reels-generator.hf.space/
+
+Hugging Face Space page: https://huggingface.co/spaces/Habib-HF/Quran-Reels-Generator
+
+GitHub releases: https://github.com/Afrasyaab-GH/Quran-Reels-Generator/releases/latest
+
 [![Latest Release](https://img.shields.io/github/v/release/Afrasyaab-GH/Quran-Reels-Generator?include_prereleases)](https://github.com/Afrasyaab-GH/Quran-Reels-Generator/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Open-source Flask app that generates short Quran videos (Reels / Shorts / TikTok) with Arabic text, English translation overlay, configurable reciters, and dynamic visual backgrounds.
 
 > Available three ways: **Windows desktop app** · **Self-hosted Docker** · **Hugging Face Space**
+
+Note: the previous GitHub Actions badge link was opening the CI page, not the app. The live web app is the hf.space URL above.
 
 ---
 

@@ -13,7 +13,7 @@ from i18n import get_request_lang, tr_api
 from database import (
     db_create_batch, db_update_batch, db_get_batch,
     db_add_batch_item, db_update_batch_item, db_get_batch_items,
-    db_get_pending_batches, db_get_job, db_update_job,
+    db_get_pending_batches, db_get_job, db_update_job, db_get_batch_for_session,
 )
 from jobs import create_job, get_job, JOBS, JOBS_LOCK
 from quran_data import (
@@ -262,6 +262,8 @@ def create_batch():
 
     items = d.get('items', [])  # قائمة الفيديوهات [{surah, startAyah, endAyah, reciter, dynamicBg, useGlow, useVignette, aspectRatio, font, fontEn}, ...]
     session_id = d.get('sessionId')
+    if not session_id:
+        return jsonify({'ok': False, 'error': 'sessionId is required'}), 400
 
     print(f"📥 Batch create request received: {len(items)} items")
 
@@ -369,12 +371,15 @@ def create_batch():
 def get_batch_status():
     """الحصول على حالة الباتش"""
     batch_id = request.args.get('batchId')
+    session_id = request.args.get('sessionId')
     lang = get_request_lang()
     
     if not batch_id:
         return jsonify({'ok': False, 'error': tr_api('batch_id_required', lang)}), 400
+    if not session_id:
+        return jsonify({'ok': False, 'error': 'sessionId is required'}), 400
     
-    batch = db_get_batch(batch_id)
+    batch = db_get_batch_for_session(batch_id, session_id)
     if not batch:
         return jsonify({'ok': False, 'error': tr_api('batch_not_found', lang)}), 404
     
@@ -451,22 +456,21 @@ def get_batch_status():
 def list_batches():
     """الحصول على قائمة الباتشات للجلسة"""
     session_id = request.args.get('sessionId')
+    if not session_id:
+        return jsonify({'ok': False, 'error': 'sessionId is required'}), 400
     
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
     
-    if session_id:
-        # الحصول على jobs الخاصة بالجلسة ثم الباتشات
-        c.execute('''
-            SELECT DISTINCT b.* FROM batch_jobs b
-            JOIN batch_items bi ON b.id = bi.batch_id
-            JOIN jobs j ON bi.job_id = j.id
-            WHERE j.session_id = ?
-            ORDER BY b.created_at DESC LIMIT 20
-        ''', (session_id,))
-    else:
-        c.execute("SELECT * FROM batch_jobs ORDER BY created_at DESC LIMIT 20")
+    # الحصول على jobs الخاصة بالجلسة ثم الباتشات
+    c.execute('''
+        SELECT DISTINCT b.* FROM batch_jobs b
+        JOIN batch_items bi ON b.id = bi.batch_id
+        JOIN jobs j ON bi.job_id = j.id
+        WHERE j.session_id = ?
+        ORDER BY b.created_at DESC LIMIT 20
+    ''', (session_id,))
     
     rows = c.fetchall()
     conn.close()
@@ -491,11 +495,14 @@ def cancel_batch():
     d = request.json
     lang = get_request_lang(d)
     batch_id = d.get('batchId')
+    session_id = d.get('sessionId')
     
     if not batch_id:
         return jsonify({'ok': False, 'error': tr_api('batch_id_required', lang)}), 400
+    if not session_id:
+        return jsonify({'ok': False, 'error': 'sessionId is required'}), 400
     
-    batch = db_get_batch(batch_id)
+    batch = db_get_batch_for_session(batch_id, session_id)
     if not batch:
         return jsonify({'ok': False, 'error': tr_api('batch_not_found', lang)}), 404
     
