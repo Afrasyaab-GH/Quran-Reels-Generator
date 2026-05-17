@@ -16,6 +16,7 @@ import shutil
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from typing import Optional
 from flask import g
 from config import DB_PATH
 
@@ -259,7 +260,7 @@ def db_update_job(job_id: str, **kwargs):
         c.execute(f"UPDATE jobs SET {set_clause} WHERE id = ?", values + [job_id])
 
 
-def db_get_job(job_id: str) -> dict | None:
+def db_get_job(job_id: str) -> Optional[dict]:
     """Fetch a single job by ID, or None if not found."""
     with _cursor() as c:
         c.execute("SELECT * FROM jobs WHERE id = ?", (job_id,))
@@ -267,7 +268,7 @@ def db_get_job(job_id: str) -> dict | None:
     return dict(row) if row else None
 
 
-def db_get_all_jobs(status: str | None = None, limit: int = 50, session_id=None) -> list[dict]:
+def db_get_all_jobs(status: Optional[str] = None, limit: int = 50, session_id=None) -> list[dict]:
     """Return all jobs, optionally filtered by status and session."""
     with _cursor() as c:
         if status and session_id:
@@ -448,7 +449,7 @@ def db_update_batch(batch_id: str, **kwargs):
         c.execute(f"UPDATE batch_jobs SET {set_clause} WHERE id = ?", values + [batch_id])
 
 
-def db_get_batch(batch_id: str) -> dict | None:
+def db_get_batch(batch_id: str) -> Optional[dict]:
     """Fetch a batch by ID, or None."""
     with _cursor() as c:
         c.execute("SELECT * FROM batch_jobs WHERE id = ?", (batch_id,))
