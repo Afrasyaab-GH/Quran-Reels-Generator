@@ -11,7 +11,7 @@ the launcher executable, all assets, and (if present) a bundled ffmpeg.
 import os
 import sys
 import platform
-from PyInstaller.utils.hooks import collect_submodules, collect_data_files
+from PyInstaller.utils.hooks import collect_submodules, collect_data_files, copy_metadata
 
 PROJECT_ROOT = os.path.abspath(os.path.dirname(SPECPATH))  # noqa: F821
 IS_WIN = sys.platform.startswith("win")
@@ -47,6 +47,29 @@ if os.path.isdir(_ffmpeg_dir):
 for pkg in ("moviepy", "imageio", "imageio_ffmpeg"):
     try:
         datas.extend(collect_data_files(pkg))
+    except Exception:
+        pass
+
+# Package metadata (importlib.metadata lookups at runtime — moviepy/imageio need these)
+for pkg in (
+    "imageio",
+    "imageio_ffmpeg",
+    "moviepy",
+    "decorator",
+    "proglog",
+    "tqdm",
+    "numpy",
+    "Pillow",
+    "flask",
+    "flask_limiter",
+    "flask_cors",
+    "pydub",
+    "requests",
+    "deep_translator",
+    "pywebview",
+):
+    try:
+        datas.extend(copy_metadata(pkg))
     except Exception:
         pass
 
