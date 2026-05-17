@@ -12,6 +12,11 @@ dist/
 desktop/ffmpeg/
 *.spec.bak
 
+# Refactor backups (kept locally for safety, do not ship)
+main_original.py
+main.py.bak
+*.py.bak
+
 # Python
 __pycache__/
 *.py[cod]

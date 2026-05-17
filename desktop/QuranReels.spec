@@ -74,7 +74,21 @@ for pkg in (
         pass
 
 # ---- hidden imports (heavy/dynamic modules PyInstaller may miss) ----
-hiddenimports = []
+hiddenimports = [
+    # Refactored app modules (sibling to main.py at project root)
+    "main",
+    "config",
+    "quran_data",
+    "i18n",
+    "utils",
+    "database",
+    "jobs",
+    "audio",
+    "video",
+    "routes",
+    "batch",
+    "youtube_integration",
+]
 for pkg in (
     "flask",
     "flask_limiter",
