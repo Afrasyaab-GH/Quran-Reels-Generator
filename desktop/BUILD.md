@@ -14,7 +14,7 @@ The bundle launches Flask on a free localhost port and opens it in a native wind
 
 Output:
 - `dist\QuranReels\` — runnable folder (double-click `QuranReels.exe`)
-- `dist\QuranReels-Setup-1.0.0.exe` — installer (if NSIS is installed)
+- `dist\QuranReels-Setup-1.1.0.exe` — installer (if NSIS is installed)
 
 First build takes 3–8 minutes. Total size ~400–600 MB.
 
@@ -126,9 +126,9 @@ Sample README section to add to your Space:
 ## 💻 Desktop App
 
 Download the offline desktop version:
-- 🪟 [Windows installer (450 MB)](./releases/QuranReels-Setup-1.0.0.exe)
-- 🍎 [macOS app (.dmg, 480 MB)](./releases/QuranReels-1.0.0.dmg)
-- 🐧 [Linux AppImage (430 MB)](./releases/QuranReels-1.0.0-x86_64.AppImage)
+- 🪟 [Windows installer (450 MB)](./releases/QuranReels-Setup-1.1.0.exe)
+- 🍎 [macOS app (.dmg, 480 MB)](./releases/QuranReels-1.1.0.dmg)
+- 🐧 [Linux AppImage (430 MB)](./releases/QuranReels-1.1.0-x86_64.AppImage)
 ```
 
 ---
