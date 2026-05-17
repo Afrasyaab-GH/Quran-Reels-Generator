@@ -19,9 +19,19 @@ from jobs import create_job, get_job, JOBS, JOBS_LOCK
 from quran_data import (
     choose_background_query, get_surah_name, RECITER_ID_TO_NAME,
 )
-from video import build_video_task
 import sqlite3
 from config import DB_PATH
+
+# Lazy-load the heavy video pipeline to keep app startup fast.
+_build_video_task_cached = None
+
+
+def _get_build_video_task():
+    global _build_video_task_cached
+    if _build_video_task_cached is None:
+        from video import build_video_task as _build_video_task  # local import by design
+        _build_video_task_cached = _build_video_task
+    return _build_video_task_cached
 
 BATCH_QUEUE = []  # قائمة الانتظار
 BATCH_QUEUE_LOCK = threading.Lock()
@@ -98,7 +108,7 @@ def process_single_batch(batch_id):
                 if job and not job.get('config_json'):
                     db_update_job(job_id, config_json=json.dumps(config))
 
-                build_video_task(
+                _get_build_video_task()(
                     job_id,
                     config.get('pexelsKey', ''),
                     config.get('reciter', ''),
