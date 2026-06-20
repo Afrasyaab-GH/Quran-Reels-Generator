@@ -1,29 +1,33 @@
 ---
 title: Quran Reels Generator
-emoji: 📖
+emoji: ☪️
 colorFrom: green
-colorTo: blue
+colorTo: emerald
 sdk: docker
 app_port: 7860
 pinned: false
+short_description: "Automated AI tool to generate beautiful Quranic Reels & Shorts"
+tags:
+  - quran
+  - islam
+  - video-generator
+  - reels
+  - tiktok
+  - youtube-shorts
+  - ffmpeg
+  - python
+  - automation
 ---
 
-# Quran Reels Generator
+# 📖 Quran Reels Generator
 
-Live app: https://habib-hf-quran-reels-generator.hf.space/
+[![Live App](https://img.shields.io/badge/Live_App-HuggingFace_Space-blue?style=for-the-badge&logo=huggingface)](https://huggingface.co/spaces/Habib-HF/Quran-Reels-Generator) [![Latest Release](https://img.shields.io/github/v/release/Afrasyaab-GH/Quran-Reels-Generator?include_prereleases&style=for-the-badge&logo=github)](https://github.com/Afrasyaab-GH/Quran-Reels-Generator/releases/latest) [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](LICENSE)
 
-Hugging Face Space page: https://huggingface.co/spaces/Habib-HF/Quran-Reels-Generator
+**Quran Reels Generator** is a powerful, open-source automation tool designed to help creators generate stunning, high-retention short-form videos (Reels, TikToks, Shorts) of Quranic recitations in seconds. 
 
-GitHub releases: https://github.com/Afrasyaab-GH/Quran-Reels-Generator/releases/latest
+Whether you're an Islamic content creator, a page admin, or just looking to share the message, this tool automates the entire video creation pipeline: fetching audio, syncing Arabic text with English translations, applying beautiful background visuals, and exporting vertical videos ready for social media.
 
-[![Latest Release](https://img.shields.io/github/v/release/Afrasyaab-GH/Quran-Reels-Generator?include_prereleases)](https://github.com/Afrasyaab-GH/Quran-Reels-Generator/releases/latest)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-
-Open-source Flask app that generates short Quran videos (Reels / Shorts / TikTok) with Arabic text, English translation overlay, configurable reciters, and dynamic visual backgrounds.
-
-> Available three ways: **Windows desktop app** · **Self-hosted Docker** · **Hugging Face Space**
-
-Note: the previous GitHub Actions badge link was opening the CI page, not the app. The live web app is the hf.space URL above.
+> 🚀 **Available everywhere:** **Windows Desktop App** · **Self-Hosted Docker** · **Hugging Face Web Space**
 
 ---
 
