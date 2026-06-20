@@ -31,14 +31,22 @@ from config import (
 try:
     import arabic_reshaper
     from bidi.algorithm import get_display as _bidi_display
+    _reshaper_config = {
+        'delete_harakat': False,
+        'support_harakat': True,
+        'delete_tatweel': False,
+    }
+    _arabic_reshaper_instance = arabic_reshaper.ArabicReshaper(configuration=_reshaper_config)
     def _reshape_arabic(s: str) -> str:
         """Reshape + apply RTL bidi so PIL renders Arabic correctly."""
-        return _bidi_display(arabic_reshaper.reshape(s))
+        return _bidi_display(_arabic_reshaper_instance.reshape(s))
 except ImportError:
+    _arabic_reshaper_instance = None
+    _bidi_display = lambda x: x
     def _reshape_arabic(s: str) -> str:  # fallback: no-op
         return s
 from quran_data import (
-    VERSE_COUNTS, SAFE_TOPICS, RECITER_ID_TO_NAME,
+    VERSE_COUNTS, SAFE_TOPICS, RECITER_ID_TO_NAME, QURANCOM_RECITERS_MAP,
     choose_background_query, get_surah_name,
 )
 from utils import _as_bool, to_arabic_numeral, split_into_chunks, build_audio_filter_chain
@@ -46,7 +54,7 @@ from jobs import (
     get_job, check_stop, update_job_status, update_job_metadata,
     ScopedQuranLogger, JOBS, JOBS_LOCK,
 )
-from audio import download_audio, get_text, get_en_text, smart_download, get_cached_font
+from audio import download_audio, get_text, get_translation_text, smart_download, get_cached_font
 from database import db_update_job, db_get_job, db_add_history
 
 def create_vignette_mask(w, h):
@@ -299,6 +307,218 @@ def create_text_clip(text, duration, target_w, scale_factor=1.0, glow=False, sty
         draw.text((x, curr_y), text, font=font, fill=color, stroke_width=stroke_w, stroke_fill=stroke_c)
 
     clip = ImageClip(np.array(img)).set_duration(duration)
+    return clip
+
+
+def get_word_timings(surah, ayah, reciter_name, duration, full_ar_text):
+    """
+    Get word-by-word timing for the ayah.
+    Returns a list of (word_start_relative, word_end_relative) relative to the start of the ayah audio in seconds.
+    """
+    # 1. Try Quran.com cached timings
+    from audio import load_quran_com_segments
+    q_data = load_quran_com_segments(surah, reciter_name)
+    if q_data and str(ayah) in q_data['verses']:
+        verse_timing = q_data['verses'][str(ayah)]
+        ayah_start_ms = verse_timing['start']
+        segments = verse_timing.get('segments', [])
+        
+        # segments is a list of [word_idx, start_ms, end_ms]
+        if segments:
+            timings = []
+            for item in segments:
+                # Relative time in seconds
+                w_start = max(0.0, (item[1] - ayah_start_ms) / 1000.0)
+                w_end = max(0.0, (item[2] - ayah_start_ms) / 1000.0)
+                timings.append((w_start, w_end))
+            return timings
+            
+    # 2. Fallback: Proportional character-length estimation
+    words = full_ar_text.split()
+    if not words:
+        return []
+        
+    lengths = [len(w) for w in words]
+    total_len = sum(lengths)
+    if total_len == 0:
+        return [(0.0, duration)] * len(words)
+        
+    timings = []
+    current_time = 0.0
+    for length in lengths:
+        word_dur = (length / total_len) * duration
+        timings.append((current_time, current_time + word_dur))
+        current_time += word_dur
+        
+    return timings
+
+
+def create_word_highlight_text_clip(text, duration, target_w, scale_factor=1.0, glow=False, style=None, font_path=None, word_timings=None):
+    if style is None: style = {}
+    if word_timings is None: word_timings = []
+    
+    color = style.get('arColor', '#ffffff')
+    highlight_color = style.get('arHighlightColor', '#ffd700')
+    size_mult = float(style.get('arSize', '1.0'))
+    stroke_c = style.get('arOutC', '#000000')
+    stroke_w = int(style.get('arOutW', '4'))
+    has_shadow = style.get('arShadow', True)
+    shadow_c = style.get('arShadowC', '#000000')
+    
+    # Use selected or default font
+    if font_path is None:
+        font_path = FONT_PATH_ARABIC
+        
+    font_boost = 1.15 if 'Arabic.otf' in font_path else 1.0
+    final_fs = int(55 * scale_factor * size_mult * font_boost)
+    font = get_cached_font(font_path, final_fs)
+    font_brackets = get_cached_font(FONT_PATH_BRACKETS, final_fs)
+    
+    import re
+    bracket_match = re.search(r'([﴾﴿]+.*[﴾﴿]+)$', text)
+    if bracket_match:
+        main_text = text[:bracket_match.start()].strip()
+        bracket_text = '﴾' + bracket_match.group(1)[1:-1] + '﴿'
+    else:
+        main_text = text
+        bracket_text = ""
+        
+    # Shape and BiDi for bracket text
+    if bracket_text:
+        bracket_display = _reshape_arabic(bracket_text)
+    else:
+        bracket_display = ""
+        
+    # Split text into words
+    words = main_text.split()
+    if not words:
+        return create_text_clip(text, duration, target_w, scale_factor, glow, style, font_path)
+        
+    # Shape the entire main text first to preserve Uthmanic ligatures, then apply RTL bidi
+    if _arabic_reshaper_instance:
+        reshaped_main = _arabic_reshaper_instance.reshape(main_text)
+    else:
+        reshaped_main = main_text
+    bidi_main = _bidi_display(reshaped_main)
+    bidi_words = bidi_main.split()
+    
+    if len(bidi_words) != len(words):
+        return create_text_clip(text, duration, target_w, scale_factor, glow, style, font_path)
+        
+    # Measure dimensions
+    temp_img = Image.new('RGBA', (target_w, int(180 * scale_factor * size_mult)), (0,0,0,0))
+    temp_draw = ImageDraw.Draw(temp_img)
+    
+    if bracket_display:
+        bracket_w = temp_draw.textbbox((0, 0), bracket_display + " ", font=font_brackets, stroke_width=stroke_w)[2]
+    else:
+        bracket_w = 0
+        
+    total_main_w = temp_draw.textbbox((0, 0), bidi_main, font=font, stroke_width=stroke_w)[2]
+    total_w = total_main_w + bracket_w
+    
+    x_start = (target_w - total_w) // 2
+    curr_y = 20
+    
+    # Pre-render frames for each highlight state
+    highlight_frames = {}
+    
+    highlight_frames_rgb = {}
+    highlight_frames_mask = {}
+    
+    def render_state(active_orig_idx):
+        img = Image.new('RGBA', (target_w, int(180 * scale_factor * size_mult)), (0,0,0,0))
+        draw = ImageDraw.Draw(img)
+        
+        # 1. Draw shadow
+        if has_shadow:
+            for offset in range(6, 0, -1):
+                opacity = int(80 - offset * 10)
+                shadow_color = (*[int(shadow_c.lstrip('#')[i:i+2], 16) for i in (0, 2, 4)], opacity)
+                
+                if bracket_display:
+                    draw.text((x_start+offset, curr_y+offset), bracket_display + " ", font=font_brackets, fill=shadow_color)
+                    
+                x_offset = x_start + bracket_w
+                space_w = draw.textbbox((0, 0), " ", font=font)[2]
+                for word in bidi_words:
+                    word_w = draw.textbbox((0, 0), word, font=font)[2]
+                    draw.text((x_offset+offset, curr_y+offset), word, font=font, fill=shadow_color)
+                    x_offset += word_w + space_w
+                    
+            if bracket_display:
+                draw.text((x_start+3, curr_y+3), bracket_display + " ", font=font_brackets, fill=(0, 0, 0, 180))
+            x_offset = x_start + bracket_w
+            space_w = draw.textbbox((0, 0), " ", font=font)[2]
+            for word in bidi_words:
+                word_w = draw.textbbox((0, 0), word, font=font)[2]
+                draw.text((x_offset+3, curr_y+3), word, font=font, fill=(0, 0, 0, 180))
+                x_offset += word_w + space_w
+                
+        # 2. Draw Glow
+        if glow:
+            if bracket_display:
+                draw.text((x_start, curr_y), bracket_display + " ", font=font_brackets, fill=(255,255,255,40), stroke_width=stroke_w+4, stroke_fill=(255,255,255,20))
+            x_offset = x_start + bracket_w
+            space_w = draw.textbbox((0, 0), " ", font=font)[2]
+            for bidi_idx, word in enumerate(bidi_words):
+                word_w = draw.textbbox((0, 0), word, font=font)[2]
+                orig_idx = len(words) - 1 - bidi_idx
+                is_active = (orig_idx == active_orig_idx)
+                glow_color = (255,255,255,40)
+                glow_stroke = (255,255,255,20)
+                draw.text((x_offset, curr_y), word, font=font, fill=glow_color, stroke_width=stroke_w+4, stroke_fill=glow_stroke)
+                x_offset += word_w + space_w
+                
+        # 3. Draw Actual Text
+        if bracket_display:
+            draw.text((x_start, curr_y), bracket_display + " ", font=font_brackets, fill=color, stroke_width=stroke_w, stroke_fill=stroke_c)
+            
+        x_offset = x_start + bracket_w
+        space_w = draw.textbbox((0, 0), " ", font=font)[2]
+        for bidi_idx, word in enumerate(bidi_words):
+            word_w = draw.textbbox((0, 0), word, font=font)[2]
+            orig_idx = len(words) - 1 - bidi_idx
+            is_active = (orig_idx == active_orig_idx)
+            current_color = highlight_color if is_active else color
+            draw.text((x_offset, curr_y), word, font=font, fill=current_color, stroke_width=stroke_w, stroke_fill=stroke_c)
+            x_offset += word_w + space_w
+            
+        arr = np.array(img)
+        rgb_arr = arr[:, :, :3]
+        mask_arr = arr[:, :, 3].astype(np.float32) / 255.0
+        return rgb_arr, mask_arr
+        
+    rgb, mask = render_state(None)
+    highlight_frames_rgb[None] = rgb
+    highlight_frames_mask[None] = mask
+    for k in range(len(words)):
+        rgb, mask = render_state(k)
+        highlight_frames_rgb[k] = rgb
+        highlight_frames_mask[k] = mask
+        
+    def make_frame(t):
+        t_ms = t * 1000.0
+        active_idx = None
+        for k, (w_start, w_end) in enumerate(word_timings):
+            if w_start <= t_ms <= w_end:
+                active_idx = k
+                break
+        return highlight_frames_rgb.get(active_idx, highlight_frames_rgb[None])
+
+    def make_mask_frame(t):
+        t_ms = t * 1000.0
+        active_idx = None
+        for k, (w_start, w_end) in enumerate(word_timings):
+            if w_start <= t_ms <= w_end:
+                active_idx = k
+                break
+        return highlight_frames_mask.get(active_idx, highlight_frames_mask[None])
+        
+    from moviepy.editor import VideoClip
+    clip = VideoClip(make_frame, duration=duration)
+    mask_clip = VideoClip(make_mask_frame, ismask=True, duration=duration)
+    clip = clip.set_mask(mask_clip)
     return clip
 
 def create_english_clip(text, duration, target_w, scale_factor=1.0, glow=False, style=None, font_path=None):
@@ -569,7 +789,7 @@ def build_contrast_adaptive_style(style, luminance):
 # ==========================================
 # ⚡ Optimized Video Builder (Segmented / Chunked)
 # ==========================================
-def build_video_task(job_id, user_pexels_key, reciter_id, surah, start, end, quality, bg_query, fps, dynamic_bg, use_glow, use_vignette, aspect_ratio, style, font_name='Arabic', font_name_en='English', bg_effect='enhance', scene_pack='nature_calm', bg_crossfade_sec=0.5, adaptive_text_contrast=False, safe_area_guides=False, safe_area_padding_px=0, audio_profile='studio', audio_denoise=False, audio_deess=False):
+def build_video_task(job_id, user_pexels_key, reciter_id, surah, start, end, quality, bg_query, fps, dynamic_bg, use_glow, use_vignette, aspect_ratio, style, font_name='Arabic', font_name_en='English', bg_effect='enhance', scene_pack='nature_calm', bg_crossfade_sec=0.5, adaptive_text_contrast=False, safe_area_guides=False, safe_area_padding_px=0, audio_profile='studio', audio_denoise=False, audio_deess=False, translation_lang='en', word_highlight=False):
     job = get_job(job_id)
     if not job:
         raise Exception(f"Job {job_id} not found - cannot process video")
@@ -654,7 +874,7 @@ def build_video_task(job_id, user_pexels_key, reciter_id, surah, start, end, qua
 
             # تحميل الصوت مع التحقق
             try:
-                ap = download_audio(reciter_id, surah, ayah, i, workspace, job_id)
+                ap = download_audio(reciter_id, surah, ayah, i, workspace, job_id, word_highlight=word_highlight)
                 if not os.path.exists(ap):
                     raise Exception(f"Audio file not found: {ap}")
                 full_audioclip = AudioFileClip(ap)
@@ -666,13 +886,18 @@ def build_video_task(job_id, user_pexels_key, reciter_id, surah, start, end, qua
                 continue  # Skip this ayah and continue with the next
 
             full_ar_text = get_text(surah, ayah)
-            full_en_text = get_en_text(surah, ayah)
+            full_en_text = get_translation_text(surah, ayah, translation_lang)
             
             # التحقق من وجود نص عربي
             if not full_ar_text or full_ar_text == "Text Error" or len(full_ar_text.strip()) == 0:
                 print(f"[ERROR] Failed to get Arabic text for ayah {ayah}")
                 continue  # Skip this ayah
             
+            # Get word timing segments for the ayah
+            word_timings = []
+            if word_highlight:
+                word_timings = get_word_timings(surah, ayah, reciter_id, full_audioclip.duration, full_ar_text)
+
             # تقطيع النصوص (العربي والإنجليزي)
             ar_chunks = split_into_chunks(full_ar_text, words_per_chunk=5)
             
@@ -692,7 +917,6 @@ def build_video_task(job_id, user_pexels_key, reciter_id, surah, start, end, qua
                 video_clips_to_close.append(ayah_bg_clip)
                 ayah_bg_time = 0.0
 
-            # الدوران على قطع الآية (السطور)
             # الدوران على قطع الآية (السطور)
             for chunk_idx, ar_chunk in enumerate(ar_chunks):
                 
@@ -736,8 +960,28 @@ def build_video_task(job_id, user_pexels_key, reciter_id, surah, start, end, qua
                     except Exception:
                         pass
 
+                # Compute word timings relative to the start of this chunk in milliseconds
+                chunk_words = ar_chunk.split()
+                chunk_word_timings = []
+                if word_highlight and word_timings:
+                    start_word_idx = chunk_idx * 5
+                    for w_idx in range(len(chunk_words)):
+                        abs_idx = start_word_idx + w_idx
+                        if abs_idx < len(word_timings):
+                            w_t = word_timings[abs_idx]
+                            r_start = max(0.0, (w_t[0] - current_audio_time) * 1000.0)
+                            r_end = max(0.0, (w_t[1] - current_audio_time) * 1000.0)
+                            chunk_word_timings.append((r_start, r_end))
+
                 # د. إنشاء الكليبات البصرية (نستخدم actual_duration بدل chunk_duration)
-                ac = create_text_clip(display_ar, actual_duration, target_w, scale, use_glow, style=chunk_style, font_path=font_path)
+                if word_highlight:
+                    ac = create_word_highlight_text_clip(
+                        display_ar, actual_duration, target_w, scale, use_glow,
+                        style=chunk_style, font_path=font_path, word_timings=chunk_word_timings
+                    )
+                else:
+                    ac = create_text_clip(display_ar, actual_duration, target_w, scale, use_glow, style=chunk_style, font_path=font_path)
+                
                 ec = create_english_clip(en_chunk, actual_duration, target_w, scale, use_glow, style=chunk_style, font_path=font_path_en)
                 
                 # ✅ Crossfade للنص

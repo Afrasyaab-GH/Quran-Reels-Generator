@@ -31,6 +31,7 @@ elif IS_MAC:
 datas = [
     (os.path.join(PROJECT_ROOT, "UI.html"), "."),
     (os.path.join(PROJECT_ROOT, "fonts"), "fonts"),
+    (os.path.join(PROJECT_ROOT, "static"), "static"),
 ]
 
 # Splash icon (for Tk splash window) — bundled at root
@@ -131,6 +132,15 @@ a = Analysis(  # noqa: F821
         "IPython",
         "pytest",
         "test",
+        "torch",
+        "tensorflow",
+        "tensorboard",
+        "pandas",
+        "PyQt5",
+        "PyQt6",
+        "PySide2",
+        "PySide6",
+        "PIL.ImageQt",
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,

@@ -133,7 +133,9 @@ def process_single_batch(batch_id):
                     config.get('safeAreaPaddingPx', 0),
                     config.get('audioProfile', 'studio'),
                     config.get('audioDenoise', False),
-                    config.get('audioDeEss', False)
+                    config.get('audioDeEss', False),
+                    config.get('translationLang', 'en'),
+                    config.get('wordHighlight', False)
                 )
                 
                 # حساب وقت الفيديو

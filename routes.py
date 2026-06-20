@@ -9,9 +9,9 @@ import sqlite3
 import shutil
 import threading
 import requests
-from flask import request, jsonify, send_file
+from flask import request, jsonify, send_file, send_from_directory
 from config import (
-    EXEC_DIR, OUTPUTS_DIR, UI_PATH, PEXELS_API_KEYS, DB_PATH,
+    EXEC_DIR, BUNDLE_DIR, OUTPUTS_DIR, VIDEOS_DOWNLOAD_DIR, UI_PATH, PEXELS_API_KEYS, DB_PATH,
 )
 from i18n import get_request_lang, tr_api, format_duration
 from quran_data import (
@@ -240,6 +240,11 @@ def health_check():
 
 def ui(): return send_file(UI_PATH) if os.path.exists(UI_PATH) else "API Running"
 
+def serve_static(filename):
+    """Serve static files (CSS, JS) from the static directory."""
+    static_dir = os.path.join(BUNDLE_DIR, 'static')
+    return send_from_directory(static_dir, filename)
+
 # ✅ HuggingFace Health Check Endpoint - مهم جداً!
 # HuggingFace بتعمل ping على الـ '/' route عشان تتأكد إن التطبيق شغال
 def hf_health():
@@ -258,6 +263,9 @@ def gen():
     session_id = d.get('sessionId')
     if not session_id:
         return _missing_session_response()
+    
+    translation_lang = d.get('translationLang', 'en')
+    word_highlight = d.get('wordHighlight', False)
     
     # ✅ التحقق من صحة المدخلات
     try:
@@ -298,7 +306,9 @@ def gen():
         'pexelsKey': d.get('pexelsKey', ''),
         'style': d.get('style', {}),
         'lang': lang,
-        'session_id': session_id
+        'session_id': session_id,
+        'translationLang': translation_lang,
+        'wordHighlight': word_highlight
     }
 
     job_id = create_job(config, session_id)
@@ -334,7 +344,9 @@ def gen():
             d.get('safeAreaPaddingPx', 0),
             d.get('audioProfile', 'studio'),
             d.get('audioDenoise', False),
-            d.get('audioDeEss', False)
+            d.get('audioDeEss', False),
+            translation_lang,
+            word_highlight
         ),
         daemon=True
     ).start()
@@ -378,6 +390,14 @@ def download_result():
             db_mark_downloaded(job_id, request.args.get('sessionId'))
         except Exception as e:
             print(f"[DownloadTracking] Failed to track download for {job_id}: {e}")
+
+    # Export to the user-configured viewable directory
+    try:
+        dest_path = os.path.join(VIDEOS_DOWNLOAD_DIR, filename)
+        shutil.copy2(output_path, dest_path)
+        print(f"[Download] Successfully exported video to {dest_path}")
+    except Exception as copy_err:
+        print(f"[Download] Failed to export video to {dest_path}: {copy_err}")
 
     return send_file(output_path, as_attachment=True, download_name=filename)
 
@@ -886,6 +906,7 @@ def register_routes(app, limiter):
     app.teardown_appcontext(lambda exc: None)  # DB teardown registered in main.py
     # UI
     app.add_url_rule("/", "ui", ui)
+    app.add_url_rule("/static/<path:filename>", "serve_static", serve_static)
     app.add_url_rule("/healthz", "hf_health", hf_health)
     app.add_url_rule("/favicon.ico", "favicon", favicon)
     # Core API

@@ -13,10 +13,12 @@ Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host ""
 
 # ── 1. Locate Python ─────────────────────────────────────────────────────────
+$pyCmd = Get-Command python -ErrorAction SilentlyContinue
+$pyPath = if ($pyCmd) { $pyCmd.Source } else { $null }
 $pythonCandidates = @(
     "D:\Tools\Miniconda\python.exe",
     "D:\Tools\Miniconda\envs\base\python.exe",
-    (Get-Command python -ErrorAction SilentlyContinue)?.Source
+    $pyPath
 )
 $pythonExe = $pythonCandidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
 if (-not $pythonExe) { $pythonExe = "python" }   # fallback: rely on PATH

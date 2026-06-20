@@ -181,6 +181,23 @@ os.makedirs(BASE_TEMP_DIR, exist_ok=True)
 os.makedirs(OUTPUTS_DIR, exist_ok=True)
 os.makedirs(VISION_DIR, exist_ok=True)
 
+def _resolve_videos_download_dir():
+    fallback = os.path.join(os.path.expanduser("~"), "Videos", "QuranReels")
+    if os.name != "nt":
+        return fallback
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\QuranReels") as key:
+            val, _ = winreg.QueryValueEx(key, "VideosDir")
+            if val:
+                return val
+    except Exception:
+        pass
+    return fallback
+
+VIDEOS_DOWNLOAD_DIR = _resolve_videos_download_dir()
+os.makedirs(VIDEOS_DOWNLOAD_DIR, exist_ok=True)
+
 # Database Path
 DB_PATH = os.path.join(USER_DATA_DIR, "quran_jobs.db")
 

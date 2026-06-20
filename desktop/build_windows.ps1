@@ -20,9 +20,11 @@ Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host ""
 
 # 1. Locate Python
+$pyCmd = Get-Command python -ErrorAction SilentlyContinue
+$pyPath = if ($pyCmd) { $pyCmd.Source } else { $null }
 $pythonCandidates = @(
     "D:\Tools\Miniconda\python.exe",
-    (Get-Command python -ErrorAction SilentlyContinue)?.Source
+    $pyPath
 )
 $pythonExe = $pythonCandidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
 if (-not $pythonExe) { Write-Error "Python not found"; exit 1 }
@@ -66,7 +68,8 @@ Write-Host "      Bundle ready: dist\QuranReels\ ($bundleSize MB)" -ForegroundCo
 
 # 6. NSIS installer
 if (-not $SkipInstaller) {
-    $makensis = (Get-Command makensis -ErrorAction SilentlyContinue)?.Source
+    $nsisCmd = Get-Command makensis -ErrorAction SilentlyContinue
+    $makensis = if ($nsisCmd) { $nsisCmd.Source } else { $null }
     if (-not $makensis) {
         $nsisCandidates = @(
             "C:\Program Files (x86)\NSIS\makensis.exe",

@@ -130,6 +130,18 @@ NEW_RECITERS_CONFIG = {
 # Legacy alt-source map kept for backward compatibility with cached jobs.
 OLD_RECITERS_MAP = {}
 
+# Quran.com Reciter IDs
+QURANCOM_RECITERS_MAP = {
+    'مشاري العفاسي': 7,
+    'عبدالرحمن السديس': 3,
+    'سعود الشريم': 10,
+    'أبو بكر الشاطري': 4,
+    'هاني الرفاعي': 5,
+    'عبدالباسط عبدالصمد': 2,
+    'محمد صديق المنشاوي': 9,
+    'محمود خليل الحصري': 6
+}
+
 # 🎯 MP3Quran IDs للقراء (للتوقيتات الدقيقة) — auto-derived from NEW_RECITERS_CONFIG
 MP3QURAN_IDS = {name: rid for name, (rid, _url) in NEW_RECITERS_CONFIG.items()}
 

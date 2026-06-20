@@ -14,11 +14,17 @@
 !define APP_DIST_DIR   "..\dist\QuranReels"
 !define APP_REG_KEY    "Software\Microsoft\Windows\CurrentVersion\Uninstall\QuranReels"
 
+Var VIDEOS_DIR
+
+Function .onInit
+    StrCpy $VIDEOS_DIR "$VIDEOS\QuranReels"
+FunctionEnd
+
 Name        "${APP_NAME}"
 OutFile     "..\dist\QuranReels-Setup-${APP_VERSION}.exe"
 InstallDir  "$LOCALAPPDATA\Programs\QuranReels"
 InstallDirRegKey HKCU "Software\QuranReels" "InstallDir"
-RequestExecutionLevel user        ; per-user install: no UAC prompt, no SmartScreen elevation
+RequestExecutionLevel admin       ; Run as Administrator to allow writing to Program Files
 SetCompressor /SOLID lzma
 ShowInstDetails show
 ShowUninstDetails show
@@ -31,6 +37,13 @@ ShowUninstDetails show
 
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
+
+; Directory page for Videos Output
+!define MUI_DIRECTORYPAGE_VARIABLE $VIDEOS_DIR
+!define MUI_DIRECTORYPAGE_TEXT_TOP "Select the directory where downloaded Quran Reels videos will be saved."
+!define MUI_DIRECTORYPAGE_TEXT_DESTINATION "Videos Output Directory"
+!insertmacro MUI_PAGE_DIRECTORY
+
 !insertmacro MUI_PAGE_INSTFILES
 !define MUI_FINISHPAGE_RUN "$INSTDIR\${APP_EXE}"
 !define MUI_FINISHPAGE_RUN_TEXT "Launch ${APP_NAME}"
@@ -54,6 +67,7 @@ Section "Main" SEC_MAIN
 
     ; Registry: install dir + Add/Remove Programs entry
     WriteRegStr HKCU "Software\QuranReels" "InstallDir" "$INSTDIR"
+    WriteRegStr HKCU "Software\QuranReels" "VideosDir" "$VIDEOS_DIR"
     WriteRegStr HKCU "${APP_REG_KEY}" "DisplayName"     "${APP_NAME}"
     WriteRegStr HKCU "${APP_REG_KEY}" "DisplayVersion"  "${APP_VERSION}"
     WriteRegStr HKCU "${APP_REG_KEY}" "Publisher"       "${APP_PUBLISHER}"
