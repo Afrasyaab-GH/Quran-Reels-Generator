@@ -15,8 +15,41 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install huggingface_hub
+        run: pip install huggingface_hub
+
       - name: Push to Hugging Face Space
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          git push --force https://Habib-HF:$HF_TOKEN@huggingface.co/spaces/Habib-HF/Quran-Reels-Generator main
+          python -c "
+          import os
+          from huggingface_hub import upload_folder
+          
+          upload_folder(
+              folder_path='.',
+              repo_id='Habib-HF/Quran-Reels-Generator',
+              repo_type='space',
+              token=os.environ.get('HF_TOKEN'),
+              ignore_patterns=[
+                  'desktop/*', 
+                  'run-local.ps1', 
+                  '.env.local.ps1', 
+                  '.git/*', 
+                  '.github/*', 
+                  '__pycache__/*', 
+                  '*.spec', 
+                  'Modelfile.*', 
+                  'temp_workspaces/*', 
+                  'outputs/*', 
+                  'cache_mp3quran/*', 
+                  'cache_qurancom/*',
+                  'quran_jobs.db'
+              ]
+          )
+          "
