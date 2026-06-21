@@ -142,17 +142,17 @@ AudioSegment.ffmpeg = FFMPEG_EXE
 
 # Asset Paths (fonts and UI.html are read-only; live in BUNDLE_DIR when frozen)
 FONT_DIR = os.path.join(BUNDLE_DIR, "fonts")
-FONT_PATH_ARABIC = os.path.join(FONT_DIR, "Arabic.otf")
+FONT_PATH_ARABIC = os.path.join(FONT_DIR, "Amiri.ttf")
 FONT_PATH_ENGLISH = os.path.join(FONT_DIR, "English.otf")
 VISION_DIR = os.path.join(USER_DATA_DIR, "vision")
 UI_PATH = os.path.join(BUNDLE_DIR, "UI.html")
 
 # ✅ الخطوط العربية المتاحة
 AVAILABLE_FONTS = {
-    'Arabic': os.path.join(FONT_DIR, "Arabic.otf"),
+    'Arabic': os.path.join(FONT_DIR, "Amiri.ttf"),
     'Classic': os.path.join(FONT_DIR, "Classic.ttf"),
     'Amiri': os.path.join(FONT_DIR, "Amiri.ttf"),
-    'Uthmani': os.path.join(FONT_DIR, "Uthmani.ttf"),
+    'Uthmani': os.path.join(FONT_DIR, "Classic.ttf"),
 }
 
 # ✅ خط Amiri للأقواس (بيدعم الأقواس المزخرفة)
