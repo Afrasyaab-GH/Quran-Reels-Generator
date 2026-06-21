@@ -2,11 +2,11 @@
 title: Quran Reels Generator
 emoji: ☪️
 colorFrom: green
-colorTo: emerald
+colorTo: green
 sdk: docker
 app_port: 7860
 pinned: false
-short_description: "Automated AI tool to generate beautiful Quranic Reels & Shorts"
+short_description: "Create beautiful Quranic Reels & Shorts automatically."
 tags:
   - quran
   - islam
