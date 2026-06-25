@@ -1,33 +1,29 @@
 ---
 title: Quran Reels Generator
-emoji: ☪️
+emoji: 🕌
 colorFrom: green
-colorTo: green
+colorTo: blue
 sdk: docker
 app_port: 7860
 pinned: false
-short_description: "Create beautiful Quranic Reels & Shorts automatically."
-tags:
-  - quran
-  - islam
-  - video-generator
-  - reels
-  - tiktok
-  - youtube-shorts
-  - ffmpeg
-  - python
-  - automation
 ---
 
 # 📖 Quran Reels Generator
 
-[![Live App](https://img.shields.io/badge/Live_App-HuggingFace_Space-blue?style=for-the-badge&logo=huggingface)](https://huggingface.co/spaces/Habib-HF/Quran-Reels-Generator) [![Latest Release](https://img.shields.io/github/v/release/Afrasyaab-GH/Quran-Reels-Generator?include_prereleases&style=for-the-badge&logo=github)](https://github.com/Afrasyaab-GH/Quran-Reels-Generator/releases/latest) [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](LICENSE)
+[![Live Space](https://img.shields.io/badge/Live_Space-HuggingFace_Space-blue?style=for-the-badge&logo=huggingface)](https://huggingface.co/spaces/Habib-HF/Quran-Reels-Generator) 
+[![GitHub Repository](https://img.shields.io/badge/GitHub-Repository-black?style=for-the-badge&logo=github)](https://github.com/Afrasyaab-GH/Quran-Reels-Generator)
+[![Latest Release](https://img.shields.io/github/v/release/Afrasyaab-GH/Quran-Reels-Generator?include_prereleases&style=for-the-badge&logo=github)](https://github.com/Afrasyaab-GH/Quran-Reels-Generator/releases/latest) 
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](LICENSE)
 
-**Quran Reels Generator** is a powerful, open-source automation tool designed to help creators generate stunning, high-retention short-form videos (Reels, TikToks, Shorts) of Quranic recitations in seconds. 
+**Quran Reels Generator** is a powerful, open-source automation platform designed to help content creators, da'wah pages, and developers instantly generate stunning, high-retention short-form videos (Reels, TikToks, Shorts) of Quranic recitations.
 
-Whether you're an Islamic content creator, a page admin, or just looking to share the message, this tool automates the entire video creation pipeline: fetching audio, syncing Arabic text with English translations, applying beautiful background visuals, and exporting vertical videos ready for social media.
+With a fully automated media pipeline, the app syncs Arabic Quranic text, fetches high-quality background videos, applies audio enhancements, overlays translations, and compiles high-definition vertical videos ready for social media publishing.
 
-> 🚀 **Available everywhere:** **Windows Desktop App** · **Self-Hosted Docker** · **Hugging Face Web Space**
+> 🚀 **Deploy & Run Anywhere:** **Windows Desktop App (No Install)** · **Self-Hosted Docker** · **Hugging Face Web Space**
+>
+> 🌐 **Live Web Application:** [https://huggingface.co/spaces/Habib-HF/Quran-Reels-Generator](https://huggingface.co/spaces/Habib-HF/Quran-Reels-Generator)
+>
+> 💻 **GitHub Repository:** [https://github.com/Afrasyaab-GH/Quran-Reels-Generator](https://github.com/Afrasyaab-GH/Quran-Reels-Generator)
 
 ---
 
@@ -40,26 +36,27 @@ Whether you're an Islamic content creator, a page admin, or just looking to shar
 
 **Requirements:** Windows 10/11 (64-bit) · Microsoft Edge WebView2 runtime (the app will prompt to install it if missing — ~2 MB).
 
-FFmpeg is bundled. No Python install required.
+*FFmpeg is bundled. No Python installation required.*
 
 ---
 
-## 🌐 Try the web demo
+## 🌐 Try the Web App
 
 Run on Hugging Face Spaces: **[Habib-HF/Quran-Reels-Generator](https://huggingface.co/spaces/Habib-HF/Quran-Reels-Generator)**
 
 ---
 
-## ✨ Features
+## ✨ Key Features & Capabilities
 
-- Choose any surah + ayah range
-- Multiple reciters (Mishary, Husary, Al-Afasy, Sudais, Shuraim, and more)
-- English translation overlay (Sahih International, Pickthall, Yusuf Ali, etc.)
-- Automatic background video (Pexels) or procedural emerald/teal gradient fallback
-- Optional Pexels API key for higher-quality backgrounds
-- Vertical 9:16 output (Reels / Shorts / TikTok ready)
-- Direct YouTube upload (OAuth)
-- Arabic and English UI
+*   **Custom Verse Ranges:** Select any Surah and Ayah range to render.
+*   **Word-by-Word Highlight Sync:** Active Arabic words highlight in sync with the recitation audio (utilizing Quran.com APIs and smart fallback proportional timing).
+*   **Multilingual Translations:** Choose translation overlays in **English (Sahih International), Urdu (Jalandhry), French (Hamidullah), Spanish (Cortes), and Indonesian (Kemenag)**.
+*   **Interactive Style Presets:** Customize fonts, sizing, colors, outline widths, and shadows. Save custom styles as presets or choose from built-in themes (Default, Emerald, Royal Gold, Cyber Neon).
+*   **Multiple Reciters:** Supports 15+ top reciters (Mishary Al-Afasy, Al-Sudais, Al-Shuraim, Abu Bakr Al-Shatri, Maher Al-Muaiqly, Mansour Al-Salimi, and more).
+*   **Advanced Audio Mastering:** Built-in audio filters for dry studio, mobile, YouTube, and TikTok profiles, with optional background noise reduction (denoising) and sibilance reduction (de-essing).
+*   **Dynamic Visual Backgrounds:** Fetches royalty-free vertical background clips from Pexels/Pixabay based on search queries, with procedural animated gradient fallback when API keys are not supplied.
+*   **Social Media Ready:** High-definition vertical 9:16 aspect ratio (also supports 1:1 square and 16:9 landscape options).
+*   **Direct YouTube Upload:** Publish directly to YouTube Shorts via built-in Google OAuth flow.
 
 ---
 
