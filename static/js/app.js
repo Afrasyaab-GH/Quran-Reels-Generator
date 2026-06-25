@@ -1,11 +1,67 @@
         // ═══════════════════════════════════════
         // 📦 State & Config
         // ═══════════════════════════════════════
+        
+        // Safe cross-origin iframe storage wrappers
+        const SafeStorage = {
+            getItem(key) {
+                try {
+                    return window.localStorage.getItem(key);
+                } catch (e) {
+                    console.warn('Storage access blocked, falling back to memory:', e);
+                    return this._mem[key] || null;
+                }
+            },
+            setItem(key, value) {
+                try {
+                    window.localStorage.setItem(key, value);
+                } catch (e) {
+                    console.warn('Storage write blocked, falling back to memory:', e);
+                    this._mem[key] = value;
+                }
+            },
+            removeItem(key) {
+                try {
+                    window.localStorage.removeItem(key);
+                } catch (e) {
+                    delete this._mem[key];
+                }
+            },
+            _mem: {}
+        };
+
+        const SafeSessionStorage = {
+            getItem(key) {
+                try {
+                    return window.sessionStorage.getItem(key);
+                } catch (e) {
+                    console.warn('SessionStorage access blocked, falling back to memory:', e);
+                    return this._mem[key] || null;
+                }
+            },
+            setItem(key, value) {
+                try {
+                    window.sessionStorage.setItem(key, value);
+                } catch (e) {
+                    console.warn('SessionStorage write blocked, falling back to memory:', e);
+                    this._mem[key] = value;
+                }
+            },
+            removeItem(key) {
+                try {
+                    window.sessionStorage.removeItem(key);
+                } catch (e) {
+                    delete this._mem[key];
+                }
+            },
+            _mem: {}
+        };
+
         let VERSE_COUNTS = {};
         let currentJobId = null;
         let pollInterval = null;
         let SESSION_ID = null;
-        let CURRENT_LANG = localStorage.getItem('quran_ui_lang') || 'ar';
+        let CURRENT_LANG = SafeStorage.getItem('quran_ui_lang') || 'ar';
         let currentResultJobId = null;
         let currentResultConfig = null;
         let mediaHubFilter = 'all';
@@ -583,7 +639,7 @@
 
         async function toggleLanguage() {
             CURRENT_LANG = CURRENT_LANG === 'ar' ? 'en' : 'ar';
-            localStorage.setItem('quran_ui_lang', CURRENT_LANG);
+            SafeStorage.setItem('quran_ui_lang', CURRENT_LANG);
             await loadConfig();
             applyLanguage();
             initBatchPage();
@@ -650,12 +706,12 @@
                 audioDenoise: document.getElementById('audioDenoise')?.checked ?? false,
                 audioDeEss: document.getElementById('audioDeEss')?.checked ?? false
             };
-            localStorage.setItem('quran_video_settings', JSON.stringify(settings));
+            SafeStorage.setItem('quran_video_settings', JSON.stringify(settings));
         }
 
         // ✅ تحميل إعدادات الفيديو
         function loadVideoSettings() {
-            const saved = JSON.parse(localStorage.getItem('quran_video_settings')) || defaultVideoSettings;
+            const saved = JSON.parse(SafeStorage.getItem('quran_video_settings')) || defaultVideoSettings;
 
             Object.entries(saved).forEach(([key, value]) => {
                 const el = document.getElementById(key);
@@ -686,14 +742,14 @@
         // 🔑 Session Management
         // ═══════════════════════════════════════
         function getOrCreateSessionId() {
-            let sessionId = localStorage.getItem('quran_session_id');
-            const sessionAge = localStorage.getItem('quran_session_age');
+            let sessionId = SafeStorage.getItem('quran_session_id');
+            const sessionAge = SafeStorage.getItem('quran_session_age');
             const thirtyDays = 30 * 24 * 60 * 60 * 1000;
             
             if (!sessionId || !sessionAge || (Date.now() - parseInt(sessionAge)) > thirtyDays) {
                 sessionId = 'sess_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-                localStorage.setItem('quran_session_id', sessionId);
-                localStorage.setItem('quran_session_age', Date.now().toString());
+                SafeStorage.setItem('quran_session_id', sessionId);
+                SafeStorage.setItem('quran_session_age', Date.now().toString());
                 console.log('🆕 New session created:', sessionId);
             }
             
@@ -1147,7 +1203,7 @@
                 audioProfile: document.getElementById('audioProfile')?.value || 'studio',
                 audioDenoise: document.getElementById('audioDenoise')?.checked ?? false,
                 audioDeEss: document.getElementById('audioDeEss')?.checked ?? false,
-                pexelsKey: localStorage.getItem('user_pexels_key') || '',
+                pexelsKey: SafeStorage.getItem('user_pexels_key') || '',
                 style: style
             };
 
@@ -1477,7 +1533,7 @@
                 const trackedUrl = trackedDownloadUrl(item.downloadUrl, item.jobId);
                 actionsHtml = `
                     <button onclick="previewVideo('${item.downloadUrl}')">${t('preview')}</button>
-                    <a href="${trackedUrl}" download onclick="refreshMediaViewsLater()">${t('download')}</a>
+                    <a href="${trackedUrl}" download target="_blank" onclick="refreshMediaViewsLater()">${t('download')}</a>
                     <button onclick="openVideoEditor('${item.jobId}', false)">${CURRENT_LANG === 'ar' ? '✏️ تعديل' : '✏️ Edit'}</button>
                     <button onclick="openVideoEditor('${item.jobId}', true)">${CURRENT_LANG === 'ar' ? '♻️ إعادة إنشاء' : '♻️ Regenerate'}</button>
                     <button onclick="openYoutubeDialog('${item.jobId}', '${item.title?.replace(/'/g, "\\'") || t('generateVideoBtn').replace('✨ ', '')}', '${reciterName.replace(/'/g, "\\'")}', '${surahName}')" style="background: #ff0000; color: white; border: none;">${t('youtube')}</button>
@@ -1578,7 +1634,7 @@
                     </div>
                     <div class="media-actions">
                         <button ${hasDownload ? '' : 'disabled'} onclick="previewVideo('${item.downloadUrl || ''}')">${CURRENT_LANG === 'ar' ? '▶️ عرض' : '▶️ Preview'}</button>
-                        <a ${hasDownload ? '' : 'style="pointer-events:none; opacity:.5;"'} href="${tracked}" download onclick="refreshMediaViewsLater()">${CURRENT_LANG === 'ar' ? '⬇️ تنزيل' : '⬇️ Download'}</a>
+                        <a ${hasDownload ? '' : 'style="pointer-events:none; opacity:.5;"'} href="${tracked}" download target="_blank" onclick="refreshMediaViewsLater()">${CURRENT_LANG === 'ar' ? '⬇️ تنزيل' : '⬇️ Download'}</a>
                         <button onclick="openVideoEditor('${item.jobId}', false)">${CURRENT_LANG === 'ar' ? '✏️ تعديل' : '✏️ Edit'}</button>
                         <button onclick="openVideoEditor('${item.jobId}', true)">${CURRENT_LANG === 'ar' ? '♻️ إعادة' : '♻️ Regenerate'}</button>
                         <button onclick="openYoutubeDialog('${item.jobId}', '${(item.title || '').replace(/'/g, "\\'")}', '${(item.reciter || '').replace(/'/g, "\\'")}', '${item.surah || ''}')">${CURRENT_LANG === 'ar' ? '📺 يوتيوب' : '📺 YouTube'}</button>
@@ -1930,17 +1986,28 @@
         }
 
         function loadSettings() {
-            const saved = JSON.parse(localStorage.getItem('quran_app_styles_v2')) || defaultSettings;
+            const saved = JSON.parse(SafeStorage.getItem('quran_app_styles_v2')) || defaultSettings;
             
             Object.entries(saved).forEach(([key, value]) => {
                 const el = document.getElementById(key);
                 if (el) el.value = value;
             });
             
-            const pexelsKey = localStorage.getItem('user_pexels_key');
+            const pexelsKey = SafeStorage.getItem('user_pexels_key');
             if (pexelsKey) {
                 document.getElementById('pexelsKey').value = pexelsKey;
             }
+            
+            // Auto-save user input for Pexels key
+            document.getElementById('pexelsKey')?.addEventListener('input', (e) => {
+                const val = e.target.value.trim();
+                if (val) {
+                    SafeStorage.setItem('user_pexels_key', val);
+                } else {
+                    SafeStorage.removeItem('user_pexels_key');
+                }
+                updatePexelsBanner();
+            });
             
             updatePexelsBanner();
             updatePreview();
@@ -1950,8 +2017,8 @@
         function updatePexelsBanner() {
             const banner = document.getElementById('pexelsBanner');
             if (!banner) return;
-            const hasKey = !!(localStorage.getItem('user_pexels_key') || '').trim();
-            const dismissed = sessionStorage.getItem('pexels_banner_dismissed') === '1';
+            const hasKey = !!(SafeStorage.getItem('user_pexels_key') || '').trim();
+            const dismissed = SafeSessionStorage.getItem('pexels_banner_dismissed') === '1';
             // Also check backend env via /api/config (best-effort) — if server has a key, hide
             const serverHas = window.__serverHasPexels === true;
             banner.style.display = (hasKey || serverHas || dismissed) ? 'none' : 'block';
@@ -1965,7 +2032,7 @@
                 saveBtn.addEventListener('click', () => {
                     const v = (input.value || '').trim();
                     if (v.length < 10) { alert('المفتاح يبدو قصيراً جداً'); return; }
-                    localStorage.setItem('user_pexels_key', v);
+                    SafeStorage.setItem('user_pexels_key', v);
                     const settingsField = document.getElementById('pexelsKey');
                     if (settingsField) settingsField.value = v;
                     updatePexelsBanner();
@@ -1973,7 +2040,7 @@
             }
             if (dismissBtn) {
                 dismissBtn.addEventListener('click', () => {
-                    sessionStorage.setItem('pexels_banner_dismissed', '1');
+                    SafeSessionStorage.setItem('pexels_banner_dismissed', '1');
                     updatePexelsBanner();
                 });
             }
@@ -2031,13 +2098,13 @@
                 if (el) settings[key] = el.value;
             });
             
-            localStorage.setItem('quran_app_styles_v2', JSON.stringify(settings));
+            SafeStorage.setItem('quran_app_styles_v2', JSON.stringify(settings));
             
             const pexelsKey = document.getElementById('pexelsKey').value;
             if (pexelsKey) {
-                localStorage.setItem('user_pexels_key', pexelsKey);
+                SafeStorage.setItem('user_pexels_key', pexelsKey);
             } else {
-                localStorage.removeItem('user_pexels_key');
+                SafeStorage.removeItem('user_pexels_key');
             }
             
             showToast(t('settingsSaved'), 'success');
@@ -2046,8 +2113,8 @@
         function resetAllSettings() {
             if (!confirm(t('resetSettingsConfirm'))) return;
             
-            localStorage.removeItem('quran_app_styles_v2');
-            localStorage.removeItem('user_pexels_key');
+            SafeStorage.removeItem('quran_app_styles_v2');
+            SafeStorage.removeItem('user_pexels_key');
             document.getElementById('pexelsKey').value = '';
             loadSettings();
             showToast(t('settingsRestored'), 'success');
@@ -2118,14 +2185,14 @@
 
         function getCustomPresets() {
             try {
-                return JSON.parse(localStorage.getItem('quran_custom_presets')) || {};
+                return JSON.parse(SafeStorage.getItem('quran_custom_presets')) || {};
             } catch (e) {
                 return {};
             }
         }
 
         function saveCustomPresets(presets) {
-            localStorage.setItem('quran_custom_presets', JSON.stringify(presets));
+            SafeStorage.setItem('quran_custom_presets', JSON.stringify(presets));
         }
 
         function initPresets() {
@@ -2249,10 +2316,10 @@
             document.body.classList.toggle('light-theme');
             const isLight = document.body.classList.contains('light-theme');
             document.getElementById('themeBtn').textContent = isLight ? '☀️' : '🌙';
-            localStorage.setItem('theme', isLight ? 'light' : 'dark');
+            SafeStorage.setItem('theme', isLight ? 'light' : 'dark');
         }
 
-        if (localStorage.getItem('theme') === 'light') {
+        if (SafeStorage.getItem('theme') === 'light') {
             document.body.classList.add('light-theme');
             document.getElementById('themeBtn').textContent = '☀️';
         }
@@ -2323,7 +2390,7 @@
             container.innerHTML = '';
             
             // تحميل الاختيارات المحفوظة
-            const saved = localStorage.getItem('selectedRecitersForRandom');
+            const saved = SafeStorage.getItem('selectedRecitersForRandom');
             if (saved) {
                 try {
                     selectedRecitersForRandom = JSON.parse(saved);
@@ -2365,8 +2432,8 @@
                 }
             });
             
-            // حفظ في localStorage
-            localStorage.setItem('selectedRecitersForRandom', JSON.stringify(selectedRecitersForRandom));
+            // حفظ في SafeStorage
+            SafeStorage.setItem('selectedRecitersForRandom', JSON.stringify(selectedRecitersForRandom));
         }
 
         function selectAllReciters() {
@@ -2652,7 +2719,7 @@
                     audioDenoise: item.audioDenoise ?? false,
                     audioDeEss: item.audioDeEss ?? false
                 })),
-                pexelsKey: localStorage.getItem('user_pexels_key') || '',
+                pexelsKey: SafeStorage.getItem('user_pexels_key') || '',
                 scenePack: document.getElementById('scenePack')?.value || 'nature_calm',
                 bgCrossfadeSec: parseFloat(document.getElementById('bgCrossfadeSec')?.value || '0.5'),
                 adaptiveTextContrast: document.getElementById('adaptiveTextContrast')?.checked ?? true,

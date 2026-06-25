@@ -108,13 +108,13 @@ def apply_background_effects(clip, effect_type='enhance', strength=1.0):
     except:
         return clip  # إذا حدث خطأ، أرجع الـ clip الأصلي
 
-def fetch_from_multiple_sources(query, count, aspect_ratio='9:16', job_id=None):
+def fetch_from_multiple_sources(user_pexels_key, query, count, aspect_ratio='9:16', job_id=None):
     """جلب الخلفيات من مصادر متعددة / Fetch backgrounds from multiple sources"""
     all_videos = []
     
     # المصدر الأول: Pexels (الأساسي)
     try:
-        pexels_videos = fetch_video_pool("", query, count=count, job_id=job_id, aspect_ratio=aspect_ratio)
+        pexels_videos = fetch_video_pool(user_pexels_key, query, count=count, job_id=job_id, aspect_ratio=aspect_ratio)
         all_videos.extend(pexels_videos)
     except:
         pass
@@ -834,7 +834,7 @@ def build_video_task(job_id, user_pexels_key, reciter_id, surah, start, end, qua
         vpool = []
         fetch_error = None
         try:
-            vpool = fetch_from_multiple_sources(bg_query, count=total_ayahs if dynamic_bg else 1, aspect_ratio=aspect_ratio, job_id=job_id)
+            vpool = fetch_from_multiple_sources(user_pexels_key, bg_query, count=total_ayahs if dynamic_bg else 1, aspect_ratio=aspect_ratio, job_id=job_id)
         except Exception as ex:
             fetch_error = f"multi_source: {ex}"
 

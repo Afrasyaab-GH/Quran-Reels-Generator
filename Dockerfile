@@ -12,7 +12,8 @@ RUN apt-get update && \
     imagemagick \
     ghostscript \
     fonts-liberation \
-    fonts-kacst && \
+    fonts-kacst \
+    libraqm0 && \
     rm -rf /var/lib/apt/lists/*
 
 # 3. فتح قيود ImageMagick بالكامل (الحل النووي)
