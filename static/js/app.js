@@ -1203,7 +1203,7 @@
                 audioProfile: document.getElementById('audioProfile')?.value || 'studio',
                 audioDenoise: document.getElementById('audioDenoise')?.checked ?? false,
                 audioDeEss: document.getElementById('audioDeEss')?.checked ?? false,
-                pexelsKey: SafeStorage.getItem('user_pexels_key') || '',
+                pexelsKey: SafeSessionStorage.getItem('user_pexels_key') || '',
                 style: style
             };
 
@@ -1993,7 +1993,7 @@
                 if (el) el.value = value;
             });
             
-            const pexelsKey = SafeStorage.getItem('user_pexels_key');
+            const pexelsKey = SafeSessionStorage.getItem('user_pexels_key');
             if (pexelsKey) {
                 document.getElementById('pexelsKey').value = pexelsKey;
             }
@@ -2002,9 +2002,9 @@
             document.getElementById('pexelsKey')?.addEventListener('input', (e) => {
                 const val = e.target.value.trim();
                 if (val) {
-                    SafeStorage.setItem('user_pexels_key', val);
+                    SafeSessionStorage.setItem('user_pexels_key', val);
                 } else {
-                    SafeStorage.removeItem('user_pexels_key');
+                    SafeSessionStorage.removeItem('user_pexels_key');
                 }
                 updatePexelsBanner();
             });
@@ -2017,7 +2017,7 @@
         function updatePexelsBanner() {
             const banner = document.getElementById('pexelsBanner');
             if (!banner) return;
-            const hasKey = !!(SafeStorage.getItem('user_pexels_key') || '').trim();
+            const hasKey = !!(SafeSessionStorage.getItem('user_pexels_key') || '').trim();
             const dismissed = SafeSessionStorage.getItem('pexels_banner_dismissed') === '1';
             // Also check backend env via /api/config (best-effort) — if server has a key, hide
             const serverHas = window.__serverHasPexels === true;
@@ -2032,7 +2032,7 @@
                 saveBtn.addEventListener('click', () => {
                     const v = (input.value || '').trim();
                     if (v.length < 10) { alert('المفتاح يبدو قصيراً جداً'); return; }
-                    SafeStorage.setItem('user_pexels_key', v);
+                    SafeSessionStorage.setItem('user_pexels_key', v);
                     const settingsField = document.getElementById('pexelsKey');
                     if (settingsField) settingsField.value = v;
                     updatePexelsBanner();
@@ -2102,9 +2102,9 @@
             
             const pexelsKey = document.getElementById('pexelsKey').value;
             if (pexelsKey) {
-                SafeStorage.setItem('user_pexels_key', pexelsKey);
+                SafeSessionStorage.setItem('user_pexels_key', pexelsKey);
             } else {
-                SafeStorage.removeItem('user_pexels_key');
+                SafeSessionStorage.removeItem('user_pexels_key');
             }
             
             showToast(t('settingsSaved'), 'success');
@@ -2114,7 +2114,7 @@
             if (!confirm(t('resetSettingsConfirm'))) return;
             
             SafeStorage.removeItem('quran_app_styles_v2');
-            SafeStorage.removeItem('user_pexels_key');
+            SafeSessionStorage.removeItem('user_pexels_key');
             document.getElementById('pexelsKey').value = '';
             loadSettings();
             showToast(t('settingsRestored'), 'success');
@@ -2719,7 +2719,7 @@
                     audioDenoise: item.audioDenoise ?? false,
                     audioDeEss: item.audioDeEss ?? false
                 })),
-                pexelsKey: SafeStorage.getItem('user_pexels_key') || '',
+                pexelsKey: SafeSessionStorage.getItem('user_pexels_key') || '',
                 scenePack: document.getElementById('scenePack')?.value || 'nature_calm',
                 bgCrossfadeSec: parseFloat(document.getElementById('bgCrossfadeSec')?.value || '0.5'),
                 adaptiveTextContrast: document.getElementById('adaptiveTextContrast')?.checked ?? true,
